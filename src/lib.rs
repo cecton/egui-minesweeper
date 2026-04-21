@@ -233,7 +233,8 @@ impl MinesweeperGame {
 
 /// An egui widget that renders the minesweeper grid.
 ///
-/// Left-click reveals a cell; right-click cycles hidden, red flags and blue marker.
+/// Left-click reveals a cell;
+/// right-click cycles between hidden -> red flag -> blue marker -> hidden.
 ///
 /// ```no_run
 /// ui.add(egui_minesweeper::MinesweeperWidget::new(&mut game));
