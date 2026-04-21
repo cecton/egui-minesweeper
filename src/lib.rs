@@ -278,91 +278,15 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32) {
     let rounding = CornerRadius::same(2);
 
     match cell.state {
-        CellState::Hidden => {
-            // Raised 3-D look (classic Minesweeper style).
-            painter.rect_filled(inner, rounding, Color32::from_rgb(192, 192, 192));
-            // Highlight edges (top-left bright, bottom-right dark).
-            let tl = inner.left_top();
-            let tr = inner.right_top();
-            let bl = inner.left_bottom();
-            let br = inner.right_bottom();
-            let highlight = Color32::WHITE;
-            let shadow = Color32::from_rgb(100, 100, 100);
-            let w = 2.0;
-            painter.line_segment([tl, tr], Stroke::new(w, highlight));
-            painter.line_segment([tl, bl], Stroke::new(w, highlight));
-            painter.line_segment([tr, br], Stroke::new(w, shadow));
-            painter.line_segment([bl, br], Stroke::new(w, shadow));
-        }
-        CellState::Flagged => {
-            painter.rect_filled(inner, rounding, Color32::from_rgb(192, 192, 192));
-            let tl = inner.left_top();
-            let tr = inner.right_top();
-            let bl = inner.left_bottom();
-            let br = inner.right_bottom();
-            let highlight = Color32::WHITE;
-            let shadow = Color32::from_rgb(100, 100, 100);
-            let w = 2.0;
-            painter.line_segment([tl, tr], Stroke::new(w, highlight));
-            painter.line_segment([tl, bl], Stroke::new(w, highlight));
-            painter.line_segment([tr, br], Stroke::new(w, shadow));
-            painter.line_segment([bl, br], Stroke::new(w, shadow));
-            // Draw a simple flag: a filled triangle for the flag and a pole.
-            let cx = rect.center().x;
-            let top = inner.min.y + cell_size * 0.15;
-            let mid = inner.min.y + cell_size * 0.55;
-            let bot = inner.max.y - cell_size * 0.15;
-            // Pole
-            painter.line_segment(
-                [Pos2::new(cx, top), Pos2::new(cx, bot)],
-                Stroke::new(2.0, Color32::BLACK),
-            );
-            // Flag triangle
-            let flag_pts = vec![
-                Pos2::new(cx, top),
-                Pos2::new(cx + cell_size * 0.35, (top + mid) / 2.0),
-                Pos2::new(cx, mid),
-            ];
-            painter.add(egui::Shape::convex_polygon(
-                flag_pts,
-                Color32::RED,
-                Stroke::NONE,
-            ));
-        }
-        CellState::Marked => {
-            painter.rect_filled(inner, rounding, Color32::from_rgb(192, 192, 192));
-            let tl = inner.left_top();
-            let tr = inner.right_top();
-            let bl = inner.left_bottom();
-            let br = inner.right_bottom();
-            let highlight = Color32::WHITE;
-            let shadow = Color32::from_rgb(100, 100, 100);
-            let w = 2.0;
-            painter.line_segment([tl, tr], Stroke::new(w, highlight));
-            painter.line_segment([tl, bl], Stroke::new(w, highlight));
-            painter.line_segment([tr, br], Stroke::new(w, shadow));
-            painter.line_segment([bl, br], Stroke::new(w, shadow));
-            // Draw a blue flag: a filled triangle for the flag and a pole.
-            let cx = rect.center().x;
-            let top = inner.min.y + cell_size * 0.15;
-            let mid = inner.min.y + cell_size * 0.55;
-            let bot = inner.max.y - cell_size * 0.15;
-            // Pole
-            painter.line_segment(
-                [Pos2::new(cx, top), Pos2::new(cx, bot)],
-                Stroke::new(2.0, Color32::BLACK),
-            );
-            // Flag triangle
-            let flag_pts = vec![
-                Pos2::new(cx, top),
-                Pos2::new(cx + cell_size * 0.35, (top + mid) / 2.0),
-                Pos2::new(cx, mid),
-            ];
-            painter.add(egui::Shape::convex_polygon(
-                flag_pts,
-                Color32::BLUE,
-                Stroke::NONE,
-            ));
+        CellState::Hidden => draw_hidden_base(painter, inner, rounding),
+        CellState::Flagged | CellState::Marked => {
+            draw_hidden_base(painter, inner, rounding);
+            let color = if cell.state == CellState::Flagged {
+                Color32::RED
+            } else {
+                Color32::BLUE
+            };
+            draw_flag(painter, rect, inner, cell_size, color);
         }
         CellState::Revealed => {
             if cell.is_mine {
@@ -448,4 +372,41 @@ impl Widget for MinesweeperWidget<'_> {
 
         response
     }
+}
+
+fn draw_hidden_base(painter: &egui::Painter, inner: Rect, rounding: CornerRadius) {
+    // Raised 3-D look (classic Minesweeper style).
+    painter.rect_filled(inner, rounding, Color32::from_rgb(192, 192, 192));
+    // Highlight edges (top-left bright, bottom-right dark).
+    let tl = inner.left_top();
+    let tr = inner.right_top();
+    let bl = inner.left_bottom();
+    let br = inner.right_bottom();
+    let highlight = Color32::WHITE;
+    let shadow = Color32::from_rgb(100, 100, 100);
+    let w = 2.0;
+    painter.line_segment([tl, tr], Stroke::new(w, highlight));
+    painter.line_segment([tl, bl], Stroke::new(w, highlight));
+    painter.line_segment([tr, br], Stroke::new(w, shadow));
+    painter.line_segment([bl, br], Stroke::new(w, shadow));
+}
+
+fn draw_flag(painter: &egui::Painter, rect: Rect, inner: Rect, cell_size: f32, color: Color32) {
+    // Draw a simple flag: a filled triangle for the flag and a pole.
+    let cx = rect.center().x;
+    let top = inner.min.y + cell_size * 0.15;
+    let mid = inner.min.y + cell_size * 0.55;
+    let bot = inner.max.y - cell_size * 0.15;
+    // Pole
+    painter.line_segment(
+        [Pos2::new(cx, top), Pos2::new(cx, bot)],
+        Stroke::new(2.0, Color32::BLACK),
+    );
+    // Flag triangle
+    let flag_pts = vec![
+        Pos2::new(cx, top),
+        Pos2::new(cx + cell_size * 0.35, (top + mid) / 2.0),
+        Pos2::new(cx, mid),
+    ];
+    painter.add(egui::Shape::convex_polygon(flag_pts, color, Stroke::NONE));
 }
