@@ -6,7 +6,7 @@
 [![CI](https://github.com/cecton/egui-minesweeper/actions/workflows/ci.yml/badge.svg)](https://github.com/cecton/egui-minesweeper/actions/workflows/ci.yml)
 [![Rust version](https://img.shields.io/badge/rustc-1.80+-ab6000.svg)](https://blog.rust-lang.org/2024/07/25/Rust-1.80.0.html)
 [![License](https://img.shields.io/crates/l/egui-minesweeper.svg)](https://github.com/cecton/egui-minesweeper#license)
-[![Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-orange)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog%20v1.1.0-%23E05735)](CHANGELOG.md)
 [![Live demo](https://img.shields.io/badge/demo-live-brightgreen)](https://cecton.github.io/egui-minesweeper)
 
 A self-contained Minesweeper game library for [egui](https://github.com/emilk/egui).
