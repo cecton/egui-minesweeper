@@ -188,7 +188,7 @@ impl MinesweeperGame {
         let mut stack = vec![(x, y)];
         while let Some((cx, cy)) = stack.pop() {
             let idx = self.idx(cx, cy);
-            if self.cells[idx].state != CellState::Hidden {
+            if !matches!(self.cells[idx].state, CellState::Hidden | CellState::Marked) {
                 continue;
             }
             self.cells[idx].state = CellState::Revealed;
@@ -287,7 +287,7 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32) {
             } else {
                 Color32::BLUE
             };
-            draw_flag(painter, rect, inner, cell_size, color);
+            draw_flag(painter, inner, cell_size, color);
         }
         CellState::Revealed => {
             if cell.is_mine {
@@ -392,9 +392,9 @@ fn draw_hidden_base(painter: &egui::Painter, inner: Rect, rounding: CornerRadius
     painter.line_segment([bl, br], Stroke::new(w, shadow));
 }
 
-fn draw_flag(painter: &egui::Painter, rect: Rect, inner: Rect, cell_size: f32, color: Color32) {
+fn draw_flag(painter: &egui::Painter, inner: Rect, cell_size: f32, color: Color32) {
     // Draw a simple flag: a filled triangle for the flag and a pole.
-    let cx = rect.center().x;
+    let cx = inner.center().x;
     let top = inner.min.y + cell_size * 0.15;
     let mid = inner.min.y + cell_size * 0.55;
     let bot = inner.max.y - cell_size * 0.15;
