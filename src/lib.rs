@@ -291,10 +291,12 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32, v
         CellState::Hidden => draw_hidden_base(painter, inner, rounding, visuals),
         CellState::Flagged | CellState::Marked => {
             draw_hidden_base(painter, inner, rounding, visuals);
-            let flag_color = if cell.state == CellState::Flagged {
-                Color32::RED
-            } else {
-                Color32::BLUE
+            let flag_color = match (cell.state, dark_mode) {
+                (CellState::Flagged, true) => Color32::from_rgb(255, 120, 120),
+                (CellState::Flagged, false) => Color32::from_rgb(220, 0, 0),
+                (CellState::Marked, true) => Color32::from_rgb(130, 180, 255),
+                (CellState::Marked, false) => Color32::from_rgb(0, 0, 255),
+                _ => unreachable!(),
             };
             let pole_color = visuals.widgets.noninteractive.fg_stroke.color;
             draw_flag(painter, inner, cell_size, flag_color, pole_color);
