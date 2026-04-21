@@ -16,6 +16,8 @@ pub enum CellState {
     Revealed,
     /// The player has placed a flag on this cell.
     Flagged,
+    /// A blue marker used only as a visual indicator (not counted as a flag).
+    Marked,
 }
 
 /// A single cell on the Minesweeper board.
@@ -212,15 +214,16 @@ impl MinesweeperGame {
         self.check_win();
     }
 
-    /// Toggle a flag on a hidden cell.
-    pub fn toggle_flag(&mut self, x: usize, y: usize) {
+    /// Cycle marker state on an unrevealed cell: hidden -> red flag -> blue marker -> hidden.
+    pub fn cycle_flag(&mut self, x: usize, y: usize) {
         if self.status != GameStatus::Playing {
             return;
         }
         let idx = self.idx(x, y);
         match self.cells[idx].state {
             CellState::Hidden => self.cells[idx].state = CellState::Flagged,
-            CellState::Flagged => self.cells[idx].state = CellState::Hidden,
+            CellState::Flagged => self.cells[idx].state = CellState::Marked,
+            CellState::Marked => self.cells[idx].state = CellState::Hidden,
             CellState::Revealed => {}
         }
     }
@@ -230,7 +233,7 @@ impl MinesweeperGame {
 
 /// An egui widget that renders the minesweeper grid.
 ///
-/// Left-click reveals a cell; right-click toggles a flag.
+/// Left-click reveals a cell; right-click cycles hidden, red flags and blue marker.
 ///
 /// ```no_run
 /// ui.add(egui_minesweeper::MinesweeperWidget::new(&mut game));
@@ -326,6 +329,41 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32) {
                 Stroke::NONE,
             ));
         }
+        CellState::Marked => {
+            painter.rect_filled(inner, rounding, Color32::from_rgb(192, 192, 192));
+            let tl = inner.left_top();
+            let tr = inner.right_top();
+            let bl = inner.left_bottom();
+            let br = inner.right_bottom();
+            let highlight = Color32::WHITE;
+            let shadow = Color32::from_rgb(100, 100, 100);
+            let w = 2.0;
+            painter.line_segment([tl, tr], Stroke::new(w, highlight));
+            painter.line_segment([tl, bl], Stroke::new(w, highlight));
+            painter.line_segment([tr, br], Stroke::new(w, shadow));
+            painter.line_segment([bl, br], Stroke::new(w, shadow));
+            // Draw a blue flag: a filled triangle for the flag and a pole.
+            let cx = rect.center().x;
+            let top = inner.min.y + cell_size * 0.15;
+            let mid = inner.min.y + cell_size * 0.55;
+            let bot = inner.max.y - cell_size * 0.15;
+            // Pole
+            painter.line_segment(
+                [Pos2::new(cx, top), Pos2::new(cx, bot)],
+                Stroke::new(2.0, Color32::BLACK),
+            );
+            // Flag triangle
+            let flag_pts = vec![
+                Pos2::new(cx, top),
+                Pos2::new(cx + cell_size * 0.35, (top + mid) / 2.0),
+                Pos2::new(cx, mid),
+            ];
+            painter.add(egui::Shape::convex_polygon(
+                flag_pts,
+                Color32::BLUE,
+                Stroke::NONE,
+            ));
+        }
         CellState::Revealed => {
             if cell.is_mine {
                 painter.rect_filled(inner, CornerRadius::ZERO, Color32::from_rgb(255, 80, 80));
@@ -390,7 +428,7 @@ impl Widget for MinesweeperWidget<'_> {
                     if response.clicked() {
                         self.game.reveal(cx, cy);
                     } else {
-                        self.game.toggle_flag(cx, cy);
+                        self.game.cycle_flag(cx, cy);
                     }
                 }
             }
