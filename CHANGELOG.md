@@ -25,12 +25,12 @@ Versioning](semver).
 ### Added
 
 - Initial release of `egui-minesweeper`
-- `MinesweeperGame` core game logic API (rendered-agnostic).
+- `MinesweeperGame` core game logic API (renderer-agnostic).
 - `MinesweeperWidget` egui widget for interactive board rendering.
 - Safe first click behavior (mines placed on first reveal).
 - Iterative flood-fill reveal for empty cells.
 - Classic Minesweeper visual style (hidden/revealed/flagged cells, mine reveal on loss).
-- Web example and GitHub Pages deployment worfklow.
+- Web example and GitHub Pages deployment workflow.
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0
 [semver]: https://semver.org/spec/v2.0.0.html
