@@ -20,7 +20,7 @@ Versioning](semver).
 - Refactored widget rendering by extracting helper functions:
   `draw_hidden_base` and `draw_flag`.
 
-[0.1.0] - 2026-04-19
+## [0.1.0] - 2026-04-19
 
 ### Added
 
