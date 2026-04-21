@@ -67,10 +67,6 @@ game.reset();
 |------------------|------|
 | 0.1              | 0.34 |
 
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for notable or breaking changes.
-
 ## License
 
 Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
