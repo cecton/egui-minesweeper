@@ -2,7 +2,7 @@
 
 use egui::{
     Align2, Color32, CornerRadius, FontId, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui,
-    Vec2, Widget,
+    Vec2, Visuals, Widget,
 };
 
 // ─── Game types ────────────────────────────────────────────────────────────────
@@ -261,56 +261,89 @@ impl<'a> MinesweeperWidget<'a> {
     }
 }
 
-fn number_color(n: u8) -> Color32 {
+fn number_color(n: u8, dark_mode: bool) -> Color32 {
     match n {
+        1 if dark_mode => Color32::from_rgb(120, 170, 255),
         1 => Color32::from_rgb(0, 0, 255),
+        2 if dark_mode => Color32::from_rgb(120, 220, 120),
         2 => Color32::from_rgb(0, 128, 0),
+        3 if dark_mode => Color32::from_rgb(255, 120, 120),
         3 => Color32::from_rgb(200, 0, 0),
+        4 if dark_mode => Color32::from_rgb(160, 160, 255),
         4 => Color32::from_rgb(0, 0, 128),
+        5 if dark_mode => Color32::from_rgb(255, 170, 120),
         5 => Color32::from_rgb(128, 0, 0),
+        6 if dark_mode => Color32::from_rgb(120, 220, 220),
         6 => Color32::from_rgb(0, 128, 128),
+        7 if dark_mode => Color32::from_rgb(240, 240, 240),
         7 => Color32::BLACK,
+        _ if dark_mode => Color32::from_gray(190),
         _ => Color32::DARK_GRAY,
     }
 }
 
-fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32) {
+fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32, visuals: &Visuals) {
     let inner = rect.shrink(1.0);
     let rounding = CornerRadius::same(2);
+    let dark_mode = visuals.dark_mode;
 
     match cell.state {
-        CellState::Hidden => draw_hidden_base(painter, inner, rounding),
+        CellState::Hidden => draw_hidden_base(painter, inner, rounding, visuals),
         CellState::Flagged | CellState::Marked => {
-            draw_hidden_base(painter, inner, rounding);
-            let color = if cell.state == CellState::Flagged {
-                Color32::RED
-            } else {
-                Color32::BLUE
+            draw_hidden_base(painter, inner, rounding, visuals);
+            let flag_color = match (cell.state, dark_mode) {
+                (CellState::Flagged, true) => Color32::from_rgb(255, 120, 120),
+                (CellState::Flagged, false) => Color32::from_rgb(220, 0, 0),
+                (CellState::Marked, true) => Color32::from_rgb(130, 180, 255),
+                (CellState::Marked, false) => Color32::from_rgb(0, 0, 255),
+                _ => unreachable!(),
             };
-            draw_flag(painter, inner, cell_size, color);
+            let pole_color = visuals.widgets.noninteractive.fg_stroke.color;
+            draw_flag(painter, inner, cell_size, flag_color, pole_color);
         }
         CellState::Revealed => {
             if cell.is_mine {
-                painter.rect_filled(inner, CornerRadius::ZERO, Color32::from_rgb(255, 80, 80));
+                let mine_bg = if dark_mode {
+                    Color32::from_rgb(150, 55, 55)
+                } else {
+                    Color32::from_rgb(255, 80, 80)
+                };
+                painter.rect_filled(inner, CornerRadius::ZERO, mine_bg);
                 // Draw a simple mine: filled circle with spikes.
                 let c = rect.center();
                 let r = cell_size * 0.22;
-                painter.circle_filled(c, r, Color32::BLACK);
+                let mine_fg = if dark_mode {
+                    Color32::WHITE
+                } else {
+                    Color32::BLACK
+                };
+                painter.circle_filled(c, r, mine_fg);
                 // 8 spikes
                 for i in 0..8u32 {
                     let angle = i as f32 * std::f32::consts::TAU / 8.0;
                     let inner_pt = c + Vec2::new(angle.cos(), angle.sin()) * r;
                     let outer_pt = c + Vec2::new(angle.cos(), angle.sin()) * (r * 1.7);
-                    painter.line_segment([inner_pt, outer_pt], Stroke::new(2.0, Color32::BLACK));
+                    painter.line_segment([inner_pt, outer_pt], Stroke::new(2.0, mine_fg));
                 }
                 // Shine dot
-                painter.circle_filled(c + Vec2::new(-r * 0.3, -r * 0.3), r * 0.25, Color32::WHITE);
+                let shine = if dark_mode {
+                    Color32::from_gray(220)
+                } else {
+                    Color32::WHITE
+                };
+                painter.circle_filled(c + Vec2::new(-r * 0.3, -r * 0.3), r * 0.25, shine);
             } else {
-                painter.rect_filled(inner, CornerRadius::ZERO, Color32::from_rgb(210, 210, 210));
+                let revealed_fill = if dark_mode {
+                    visuals.faint_bg_color
+                } else {
+                    Color32::from_rgb(210, 210, 210)
+                };
+                painter.rect_filled(inner, CornerRadius::ZERO, revealed_fill);
+                let revealed_stroke = visuals.widgets.noninteractive.bg_stroke;
                 painter.rect_stroke(
                     inner,
                     CornerRadius::ZERO,
-                    Stroke::new(0.5, Color32::GRAY),
+                    Stroke::new(0.5, revealed_stroke.color),
                     StrokeKind::Inside,
                 );
                 if cell.adjacent_mines > 0 {
@@ -319,7 +352,7 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32) {
                         Align2::CENTER_CENTER,
                         cell.adjacent_mines.to_string(),
                         FontId::monospace(cell_size * 0.58),
-                        number_color(cell.adjacent_mines),
+                        number_color(cell.adjacent_mines, dark_mode),
                     );
                 }
             }
@@ -367,7 +400,7 @@ impl Widget for MinesweeperWidget<'_> {
                     Vec2::splat(cell_size),
                 );
                 let cell = &self.game.cells[y * self.game.width + x];
-                draw_cell(&painter, cell_rect, cell, cell_size);
+                draw_cell(&painter, cell_rect, cell, cell_size, ui.visuals());
             }
         }
 
@@ -375,16 +408,30 @@ impl Widget for MinesweeperWidget<'_> {
     }
 }
 
-fn draw_hidden_base(painter: &egui::Painter, inner: Rect, rounding: CornerRadius) {
+fn draw_hidden_base(
+    painter: &egui::Painter,
+    inner: Rect,
+    rounding: CornerRadius,
+    visuals: &Visuals,
+) {
     // Raised 3-D look (classic Minesweeper style).
-    painter.rect_filled(inner, rounding, Color32::from_rgb(192, 192, 192));
+    let base = visuals.widgets.inactive.bg_fill;
+    painter.rect_filled(inner, rounding, base);
     // Highlight edges (top-left bright, bottom-right dark).
     let tl = inner.left_top();
     let tr = inner.right_top();
     let bl = inner.left_bottom();
     let br = inner.right_bottom();
-    let highlight = Color32::WHITE;
-    let shadow = Color32::from_rgb(100, 100, 100);
+    let highlight = if visuals.dark_mode {
+        base.gamma_multiply(1.4)
+    } else {
+        Color32::WHITE
+    };
+    let shadow = if visuals.dark_mode {
+        base.gamma_multiply(0.6)
+    } else {
+        Color32::from_rgb(100, 100, 100)
+    };
     let w = 2.0;
     painter.line_segment([tl, tr], Stroke::new(w, highlight));
     painter.line_segment([tl, bl], Stroke::new(w, highlight));
@@ -392,7 +439,13 @@ fn draw_hidden_base(painter: &egui::Painter, inner: Rect, rounding: CornerRadius
     painter.line_segment([bl, br], Stroke::new(w, shadow));
 }
 
-fn draw_flag(painter: &egui::Painter, inner: Rect, cell_size: f32, color: Color32) {
+fn draw_flag(
+    painter: &egui::Painter,
+    inner: Rect,
+    cell_size: f32,
+    flag_color: Color32,
+    pole_color: Color32,
+) {
     // Draw a simple flag: a filled triangle for the flag and a pole.
     let cx = inner.center().x;
     let top = inner.min.y + cell_size * 0.15;
@@ -401,7 +454,7 @@ fn draw_flag(painter: &egui::Painter, inner: Rect, cell_size: f32, color: Color3
     // Pole
     painter.line_segment(
         [Pos2::new(cx, top), Pos2::new(cx, bot)],
-        Stroke::new(2.0, Color32::BLACK),
+        Stroke::new(2.0, pole_color),
     );
     // Flag triangle
     let flag_pts = vec![
@@ -409,5 +462,9 @@ fn draw_flag(painter: &egui::Painter, inner: Rect, cell_size: f32, color: Color3
         Pos2::new(cx + cell_size * 0.35, (top + mid) / 2.0),
         Pos2::new(cx, mid),
     ];
-    painter.add(egui::Shape::convex_polygon(flag_pts, color, Stroke::NONE));
+    painter.add(egui::Shape::convex_polygon(
+        flag_pts,
+        flag_color,
+        Stroke::NONE,
+    ));
 }

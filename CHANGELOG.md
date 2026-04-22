@@ -12,6 +12,7 @@ Versioning](semver).
 - Added `CellState::Marked` as a blue visual marker state.
 - Right-click interaction now supports a 3-state cycle:
   `Hidden -> Flagged -> Marked -> Hidden`.
+- Web example now includes a `Dark mode` toggle to switch between light and dark visuals.
 
 ### Changed
 
@@ -19,6 +20,8 @@ Versioning](semver).
 - Revealing now allows cells in `Marked` state (same as hidden cells).
 - Refactored widget rendering by extracting helper functions:
   `draw_hidden_base` and `draw_flag`.
+- `MinesweeperWidget` now adapts its visuals to the active egui theme (light/dark), including cell,
+  mine, flag, and number colors.
 
 ## [0.1.0] - 2026-04-19
 
