@@ -2,7 +2,7 @@
 //   - wasm32: a #[wasm_bindgen(start)] that calls this function body
 //   - native: a main with `dist` / `start` sub-commands that build the wasm
 //             bundle and serve it via a local dev server
-#[xtask_wasm::run_example]
+#[xtask_wasm::run_example(assets_dir = "assets")]
 fn run() {
     use eframe::egui;
     use egui_minesweeper::{GameStatus, MinesweeperGame, MinesweeperWidget};
