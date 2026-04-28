@@ -1236,6 +1236,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
 name = "glow"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3883,9 +3889,9 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 
 [[package]]
 name = "xtask-wasm"
-version = "0.6.3"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f3bed7f6fd5389c1b3a026da083202325b5d07c8105ac0d199174154e395929"
+checksum = "6032f6d49e0472556196c5e6643bffceaefba4aab17f0255b5f1034d69bca81b"
 dependencies = [
  "binary-install",
  "console_error_panic_hook",
@@ -3915,13 +3921,14 @@ dependencies = [
 
 [[package]]
 name = "xtask-watch"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c51a68e323e169b886e262aced257eece9fd1262a5da5147feb51264f0582fa"
+checksum = "c734690b46964fbf22663d52021ae46fcd9999db29ca35b6666f2bffcbad7428"
 dependencies = [
  "anyhow",
  "cargo_metadata",
  "clap",
+ "glob",
  "lazy_static",
  "libc",
  "log",
