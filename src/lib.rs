@@ -52,6 +52,34 @@ pub enum GameStatus {
     Lost,
 }
 
+/// Interaction behavior for the widget.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum InteractionMode {
+    /// Desktop/default behavior: left click reveals, right click cycles flag/mark.
+    #[default]
+    Direct,
+    /// Mobile friendly behavior: primary tap only selects a cell.
+    SelectOnly,
+}
+
+/// Camera for board panning and zooming.
+#[derive(Clone, Copy, Debug)]
+pub struct BoardCamera {
+    /// Top-left board-space position (logical pixels in board coordinates).
+    pub offset: Vec2,
+    /// Zoom factor. 1.0 means no zoom.
+    pub zoom: f32,
+}
+
+impl Default for BoardCamera {
+    fn default() -> Self {
+        Self {
+            offset: Vec2::ZERO,
+            zoom: 1.0,
+        }
+    }
+}
+
 // ─── Game logic ────────────────────────────────────────────────────────────────
 
 /// The Minesweeper game state.
@@ -242,6 +270,9 @@ impl MinesweeperGame {
 pub struct MinesweeperWidget<'a> {
     game: &'a mut MinesweeperGame,
     cell_size: Option<f32>,
+    interaction_mode: InteractionMode,
+    selected_cell: Option<&'a mut Option<(usize, usize)>>,
+    camera: Option<&'a mut BoardCamera>,
 }
 
 impl<'a> MinesweeperWidget<'a> {
@@ -249,6 +280,9 @@ impl<'a> MinesweeperWidget<'a> {
         Self {
             game,
             cell_size: None,
+            interaction_mode: InteractionMode::Direct,
+            selected_cell: None,
+            camera: None,
         }
     }
 
@@ -257,6 +291,24 @@ impl<'a> MinesweeperWidget<'a> {
     /// available space of the parent container.
     pub fn cell_size(mut self, size: f32) -> Self {
         self.cell_size = Some(size);
+        self
+    }
+
+    /// Set interaction behavior.
+    pub fn interaction_mode(mut self, mode: InteractionMode) -> Self {
+        self.interaction_mode = mode;
+        self
+    }
+
+    /// Bind selected-cell state for select-only interactions/highlighting.
+    pub fn selected_cell(mut self, selected: &'a mut Option<(usize, usize)>) -> Self {
+        self.selected_cell = Some(selected);
+        self
+    }
+
+    /// Bind camera state for pan/zoom behavior.
+    pub fn camera(mut self, camera: &'a mut BoardCamera) -> Self {
+        self.camera = Some(camera);
         self
     }
 }
@@ -369,39 +421,146 @@ impl Widget for MinesweeperWidget<'_> {
             by_width.min(by_height).max(1.0)
         });
 
-        let total = Vec2::new(self.game.width as f32, self.game.height as f32) * cell_size;
+        let mut selected_cell = self.selected_cell;
+        let mut camera = self.camera;
+
+        let mut zoom = 1.0_f32;
+        let mut offset = Vec2::ZERO;
+        if let Some(cam) = camera.as_deref_mut() {
+            cam.zoom = cam.zoom.clamp(0.5, 4.0);
+            zoom = cam.zoom;
+            offset = cam.offset;
+        }
+
+        let board_size = Vec2::new(self.game.width as f32, self.game.height as f32) * cell_size;
+        let total = if camera.is_some() {
+            ui.available_size_before_wrap().max(Vec2::splat(1.0))
+        } else {
+            board_size
+        };
 
         let (response, painter) = ui.allocate_painter(total, Sense::click());
         let origin = response.rect.min;
+        let viewport_size = response.rect.size().max(Vec2::splat(1.0));
+        let view_in_board = viewport_size / zoom;
+
+        // Clamp camera to board bounds.
+        if camera.is_some() {
+            let max_x = (board_size.x - view_in_board.x).max(0.0);
+            let max_y = (board_size.y - view_in_board.y).max(0.0);
+            offset.x = offset.x.clamp(0.0, max_x);
+            offset.y = offset.y.clamp(0.0, max_y);
+        }
 
         // ── Input handling ────────────────────────────────────────────────────
+        if response.dragged() && camera.is_some() {
+            let delta = ui.input(|i| i.pointer.delta());
+            offset -= delta / zoom;
+            let max_x = (board_size.x - view_in_board.x).max(0.0);
+            let max_y = (board_size.y - view_in_board.y).max(0.0);
+            offset.x = offset.x.clamp(0.0, max_x);
+            offset.y = offset.y.clamp(0.0, max_y);
+        }
+
         if (response.clicked() || response.secondary_clicked())
             && self.game.status == GameStatus::Playing
         {
             if let Some(pos) = response.interact_pointer_pos() {
                 let local = pos - origin;
-                let cx = (local.x / cell_size).floor() as usize;
-                let cy = (local.y / cell_size).floor() as usize;
+                let board_pos = if camera.is_some() {
+                    (local / zoom) + offset
+                } else {
+                    local
+                };
+                let cx = (board_pos.x / cell_size).floor() as usize;
+                let cy = (board_pos.y / cell_size).floor() as usize;
                 if cx < self.game.width && cy < self.game.height {
-                    if response.clicked() {
-                        self.game.reveal(cx, cy);
-                    } else {
-                        self.game.cycle_flag(cx, cy);
+                    match self.interaction_mode {
+                        InteractionMode::Direct => {
+                            if response.clicked() {
+                                self.game.reveal(cx, cy);
+                            } else {
+                                self.game.cycle_flag(cx, cy);
+                            }
+                        }
+                        InteractionMode::SelectOnly => {
+                            if response.clicked() {
+                                if let Some(sel) = selected_cell.as_deref_mut() {
+                                    *sel = Some((cx, cy));
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
         // ── Painting ──────────────────────────────────────────────────────────
-        for y in 0..self.game.height {
-            for x in 0..self.game.width {
-                let cell_rect = Rect::from_min_size(
-                    origin + Vec2::new(x as f32, y as f32) * cell_size,
-                    Vec2::splat(cell_size),
-                );
+        let (start_x, end_x, start_y, end_y) = if camera.is_some() {
+            let sx = (offset.x / cell_size).floor().max(0.0) as usize;
+            let sy = (offset.y / cell_size).floor().max(0.0) as usize;
+            let ex = ((offset.x + view_in_board.x) / cell_size).ceil() as usize + 1;
+            let ey = ((offset.y + view_in_board.y) / cell_size).ceil() as usize + 1;
+            (
+                sx.min(self.game.width),
+                ex.min(self.game.width),
+                sy.min(self.game.height),
+                ey.min(self.game.height),
+            )
+        } else {
+            (0, self.game.width, 0, self.game.height)
+        };
+
+        for y in start_y..end_y {
+            for x in start_x..end_x {
+                let cell_min = if camera.is_some() {
+                    origin + ((Vec2::new(x as f32, y as f32) * cell_size - offset) * zoom)
+                } else {
+                    origin + Vec2::new(x as f32, y as f32) * cell_size
+                };
+                let cell_px = if camera.is_some() {
+                    Vec2::splat(cell_size * zoom)
+                } else {
+                    Vec2::splat(cell_size)
+                };
+                let cell_rect = Rect::from_min_size(cell_min, cell_px);
                 let cell = &self.game.cells[y * self.game.width + x];
-                draw_cell(&painter, cell_rect, cell, cell_size, ui.visuals());
+                let draw_cell_size = if camera.is_some() {
+                    cell_size * zoom
+                } else {
+                    cell_size
+                };
+                draw_cell(&painter, cell_rect, cell, draw_cell_size, ui.visuals());
             }
+        }
+
+        if let Some(sel) = selected_cell.as_deref() {
+            if let Some((sx, sy)) = *sel {
+                if sx < self.game.width && sy < self.game.height {
+                    let sel_min = if camera.is_some() {
+                        origin + ((Vec2::new(sx as f32, sy as f32) * cell_size - offset) * zoom)
+                    } else {
+                        origin + Vec2::new(sx as f32, sy as f32) * cell_size
+                    };
+                    let sel_size = if camera.is_some() {
+                        Vec2::splat(cell_size * zoom)
+                    } else {
+                        Vec2::splat(cell_size)
+                    };
+                    let sel_rect = Rect::from_min_size(sel_min, sel_size).shrink(1.0);
+                    painter.rect_stroke(
+                        sel_rect,
+                        CornerRadius::same(3),
+                        Stroke::new(2.0, Color32::YELLOW),
+                        StrokeKind::Inside,
+                    );
+                }
+            }
+        }
+
+        if let Some(cam) = camera {
+            cam.offset = offset;
+            cam.zoom = zoom;
         }
 
         response
