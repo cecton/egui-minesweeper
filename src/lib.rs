@@ -242,6 +242,7 @@ impl MinesweeperGame {
 pub struct MinesweeperWidget<'a> {
     game: &'a mut MinesweeperGame,
     cell_size: Option<f32>,
+    question_marks: bool,
 }
 
 impl<'a> MinesweeperWidget<'a> {
@@ -249,6 +250,7 @@ impl<'a> MinesweeperWidget<'a> {
         Self {
             game,
             cell_size: None,
+            question_marks: false,
         }
     }
 
@@ -257,6 +259,13 @@ impl<'a> MinesweeperWidget<'a> {
     /// available space of the parent container.
     pub fn cell_size(mut self, size: f32) -> Self {
         self.cell_size = Some(size);
+        self
+    }
+
+    /// When enabled, right-clicking cycles through hidden -> flag -> question mark -> hidden.
+    /// When disabled (the default), the question mark state is skipped entirely.
+    pub fn question_marks(mut self, enabled: bool) -> Self {
+        self.question_marks = enabled;
         self
     }
 }
@@ -400,6 +409,12 @@ impl Widget for MinesweeperWidget<'_> {
                         self.game.reveal(cx, cy);
                     } else {
                         self.game.cycle_flag(cx, cy);
+                        if !self.question_marks {
+                            let idx = cy * self.game.width + cx;
+                            if self.game.cells[idx].state == CellState::Marked {
+                                self.game.cycle_flag(cx, cy);
+                            }
+                        }
                     }
                 }
             }

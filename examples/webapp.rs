@@ -14,6 +14,7 @@ fn run() {
         selected_preset: usize,
         dark_mode: bool,
         theme_initialized: bool,
+        question_marks: bool,
     }
 
     impl Default for MinesweeperApp {
@@ -28,6 +29,7 @@ fn run() {
                 selected_preset: 0,
                 dark_mode: false,
                 theme_initialized: false,
+                question_marks: false,
             }
         }
     }
@@ -77,6 +79,7 @@ fn run() {
                 ui.horizontal(|ui| {
                     ui.label(format!("Flags: {flags}  |  Mines remaining: {remaining}"));
                     ui.checkbox(&mut self.dark_mode, "Dark mode");
+                    ui.checkbox(&mut self.question_marks, "Question marks");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("New Game").clicked() {
                             self.game.reset();
@@ -105,7 +108,11 @@ fn run() {
                 ui.add_space(4.0);
 
                 egui::ScrollArea::both().show(ui, |ui| {
-                    ui.add(MinesweeperWidget::new(&mut self.game).cell_size(34.0));
+                    ui.add(
+                        MinesweeperWidget::new(&mut self.game)
+                            .cell_size(34.0)
+                            .question_marks(self.question_marks),
+                    );
                 });
             });
         }
