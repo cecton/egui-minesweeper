@@ -8,10 +8,36 @@ fn run() {
     use egui_minesweeper::{GameStatus, MinesweeperGame, MinesweeperWidget};
     use xtask_wasm::wasm_bindgen::JsCast as _;
 
+    #[derive(Clone, Copy, PartialEq)]
+    enum Preset {
+        Beginner,
+        Intermediate,
+        Expert,
+    }
+
+    impl Preset {
+        const ALL: &'static [Preset] = &[Self::Beginner, Self::Intermediate, Self::Expert];
+
+        fn label(self) -> &'static str {
+            match self {
+                Self::Beginner => "Beginner (9×9, 10 mines)",
+                Self::Intermediate => "Intermediate (16×16, 40 mines)",
+                Self::Expert => "Expert (30×16, 99 mines)",
+            }
+        }
+
+        fn dims(self) -> (usize, usize, usize) {
+            match self {
+                Self::Beginner => (9, 9, 10),
+                Self::Intermediate => (16, 16, 40),
+                Self::Expert => (30, 16, 99),
+            }
+        }
+    }
+
     struct MinesweeperApp {
         game: MinesweeperGame,
-        presets: &'static [(&'static str, usize, usize, usize)],
-        selected_preset: usize,
+        selected_preset: Preset,
         question_marks: bool,
     }
 
@@ -19,12 +45,7 @@ fn run() {
         fn default() -> Self {
             Self {
                 game: MinesweeperGame::new(9, 9, 10),
-                presets: &[
-                    ("Beginner (9×9, 10 mines)", 9, 9, 10),
-                    ("Intermediate (16×16, 40 mines)", 16, 16, 40),
-                    ("Expert (30×16, 99 mines)", 30, 16, 99),
-                ],
-                selected_preset: 0,
+                selected_preset: Preset::Beginner,
                 question_marks: true,
             }
         }
@@ -48,13 +69,14 @@ fn run() {
                         egui::widgets::global_theme_preference_switch(ui);
                         ui.toggle_value(&mut self.question_marks, "❓");
                         ui.separator();
-                        for (i, (label, w, h, m)) in self.presets.iter().enumerate() {
+                        for &preset in Preset::ALL {
                             if ui
-                                .selectable_label(self.selected_preset == i, *label)
+                                .selectable_label(self.selected_preset == preset, preset.label())
                                 .clicked()
                             {
-                                self.selected_preset = i;
-                                self.game = MinesweeperGame::new(*w, *h, *m);
+                                self.selected_preset = preset;
+                                let (w, h, m) = preset.dims();
+                                self.game = MinesweeperGame::new(w, h, m);
                             }
                         }
                         ui.separator();
