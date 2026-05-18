@@ -411,9 +411,12 @@ fn run() {
                 }
 
                 if primary_released {
-                    if !self.mobile_gestures.long_press_fired && !self.mobile_gestures.tap_canceled {
+                    if !self.mobile_gestures.long_press_fired && !self.mobile_gestures.tap_canceled
+                    {
                         let released_cell = pointer_pos
-                            .and_then(|pos| mobile_cell_at_pointer(self, board_rect, pos, cell_size))
+                            .and_then(|pos| {
+                                mobile_cell_at_pointer(self, board_rect, pos, cell_size)
+                            })
                             .or(self.mobile_gestures.press_cell);
                         if let Some((cx, cy)) = released_cell {
                             let same_selected =

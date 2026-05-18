@@ -447,7 +447,7 @@ impl Widget for MinesweeperWidget<'_> {
             board_size
         };
 
-        let (response, painter) = ui.allocate_painter(total, Sense::click());
+        let (response, painter) = ui.allocate_painter(total, Sense::click_and_drag());
         let origin = response.rect.min;
         let viewport_size = response.rect.size().max(Vec2::splat(1.0));
         let view_in_board = viewport_size / zoom;
@@ -566,29 +566,27 @@ impl Widget for MinesweeperWidget<'_> {
             }
         }
 
-        if let Some(sel) = selected_cell.as_deref() {
-            if let Some((sx, sy)) = *sel {
-                if sx < self.game.width && sy < self.game.height {
-                    let sel_min = if camera.is_some() {
-                        origin
-                            + camera_shift
-                            + ((Vec2::new(sx as f32, sy as f32) * cell_size - offset) * zoom)
-                    } else {
-                        origin + Vec2::new(sx as f32, sy as f32) * cell_size
-                    };
-                    let sel_size = if camera.is_some() {
-                        Vec2::splat(cell_size * zoom)
-                    } else {
-                        Vec2::splat(cell_size)
-                    };
-                    let sel_rect = Rect::from_min_size(sel_min, sel_size).shrink(1.0);
-                    painter.rect_stroke(
-                        sel_rect,
-                        CornerRadius::same(3),
-                        Stroke::new(2.0, Color32::YELLOW),
-                        StrokeKind::Inside,
-                    );
-                }
+        if let Some((sx, sy)) = selected_cell.as_deref().copied().flatten() {
+            if sx < self.game.width && sy < self.game.height {
+                let sel_min = if camera.is_some() {
+                    origin
+                        + camera_shift
+                        + ((Vec2::new(sx as f32, sy as f32) * cell_size - offset) * zoom)
+                } else {
+                    origin + Vec2::new(sx as f32, sy as f32) * cell_size
+                };
+                let sel_size = if camera.is_some() {
+                    Vec2::splat(cell_size * zoom)
+                } else {
+                    Vec2::splat(cell_size)
+                };
+                let sel_rect = Rect::from_min_size(sel_min, sel_size).shrink(1.0);
+                painter.rect_stroke(
+                    sel_rect,
+                    CornerRadius::same(3),
+                    Stroke::new(2.0, Color32::YELLOW),
+                    StrokeKind::Inside,
+                );
             }
         }
 
