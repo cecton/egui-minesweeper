@@ -273,6 +273,7 @@ pub struct MinesweeperWidget<'a> {
     interaction_mode: InteractionMode,
     selected_cell: Option<&'a mut Option<(usize, usize)>>,
     camera: Option<&'a mut BoardCamera>,
+    center_small_board_in_viewport: bool,
 }
 
 impl<'a> MinesweeperWidget<'a> {
@@ -283,6 +284,7 @@ impl<'a> MinesweeperWidget<'a> {
             interaction_mode: InteractionMode::Direct,
             selected_cell: None,
             camera: None,
+            center_small_board_in_viewport: false,
         }
     }
 
@@ -309,6 +311,12 @@ impl<'a> MinesweeperWidget<'a> {
     /// Bind camera state for pan/zoom behavior.
     pub fn camera(mut self, camera: &'a mut BoardCamera) -> Self {
         self.camera = Some(camera);
+        self
+    }
+
+    /// Center board in viewport when board is smaller.
+    pub fn center_small_board_in_viewport(mut self, center: bool) -> Self {
+        self.center_small_board_in_viewport = center;
         self
     }
 }
@@ -443,6 +451,22 @@ impl Widget for MinesweeperWidget<'_> {
         let origin = response.rect.min;
         let viewport_size = response.rect.size().max(Vec2::splat(1.0));
         let view_in_board = viewport_size / zoom;
+        let centered_camera = camera.is_some() && self.center_small_board_in_viewport;
+
+        let board_pixel_size = board_size * zoom;
+        let view_shift = if centered_camera {
+            Vec2::new(
+                ((viewport_size.x - board_pixel_size.x) * 0.5).max(0.0),
+                ((viewport_size.y - board_pixel_size.y) * 0.5).max(0.0),
+            )
+        } else {
+            Vec2::ZERO
+        };
+        let camera_shift = if centered_camera {
+            view_shift
+        } else {
+            Vec2::ZERO
+        };
 
         // Clamp camera to board bounds.
         if camera.is_some() {
@@ -468,25 +492,31 @@ impl Widget for MinesweeperWidget<'_> {
             if let Some(pos) = response.interact_pointer_pos() {
                 let local = pos - origin;
                 let board_pos = if camera.is_some() {
-                    (local / zoom) + offset
+                    ((local - camera_shift) / zoom) + offset
                 } else {
                     local
                 };
-                let cx = (board_pos.x / cell_size).floor() as usize;
-                let cy = (board_pos.y / cell_size).floor() as usize;
-                if cx < self.game.width && cy < self.game.height {
-                    match self.interaction_mode {
-                        InteractionMode::Direct => {
-                            if response.clicked() {
-                                self.game.reveal(cx, cy);
-                            } else {
-                                self.game.cycle_flag(cx, cy);
+                if board_pos.x >= 0.0
+                    && board_pos.y >= 0.0
+                    && board_pos.x < board_size.x
+                    && board_pos.y < board_size.y
+                {
+                    let cx = (board_pos.x / cell_size).floor() as usize;
+                    let cy = (board_pos.y / cell_size).floor() as usize;
+                    if cx < self.game.width && cy < self.game.height {
+                        match self.interaction_mode {
+                            InteractionMode::Direct => {
+                                if response.clicked() {
+                                    self.game.reveal(cx, cy);
+                                } else {
+                                    self.game.cycle_flag(cx, cy);
+                                }
                             }
-                        }
-                        InteractionMode::SelectOnly => {
-                            if response.clicked() {
-                                if let Some(sel) = selected_cell.as_deref_mut() {
-                                    *sel = Some((cx, cy));
+                            InteractionMode::SelectOnly => {
+                                if response.clicked() {
+                                    if let Some(sel) = selected_cell.as_deref_mut() {
+                                        *sel = Some((cx, cy));
+                                    }
                                 }
                             }
                         }
@@ -514,7 +544,9 @@ impl Widget for MinesweeperWidget<'_> {
         for y in start_y..end_y {
             for x in start_x..end_x {
                 let cell_min = if camera.is_some() {
-                    origin + ((Vec2::new(x as f32, y as f32) * cell_size - offset) * zoom)
+                    origin
+                        + camera_shift
+                        + ((Vec2::new(x as f32, y as f32) * cell_size - offset) * zoom)
                 } else {
                     origin + Vec2::new(x as f32, y as f32) * cell_size
                 };
@@ -538,7 +570,9 @@ impl Widget for MinesweeperWidget<'_> {
             if let Some((sx, sy)) = *sel {
                 if sx < self.game.width && sy < self.game.height {
                     let sel_min = if camera.is_some() {
-                        origin + ((Vec2::new(sx as f32, sy as f32) * cell_size - offset) * zoom)
+                        origin
+                            + camera_shift
+                            + ((Vec2::new(sx as f32, sy as f32) * cell_size - offset) * zoom)
                     } else {
                         origin + Vec2::new(sx as f32, sy as f32) * cell_size
                     };
