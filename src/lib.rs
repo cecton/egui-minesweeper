@@ -180,12 +180,21 @@ impl MinesweeperGame {
         if self.status != GameStatus::Playing {
             return;
         }
+
+        let is_first_click = !self.initialized;
         if !self.initialized {
             self.initialize(x, y);
         }
 
         // Iterative flood-fill to avoid stack overflows on large boards.
         let mut stack = vec![(x, y)];
+        if is_first_click {
+            for (nx, ny) in self.neighbors(x, y) {
+                if (nx == x || ny == y) && !self.cells[self.idx(nx, ny)].is_mine {
+                    stack.push((nx, ny));
+                }
+            }
+        }
         while let Some((cx, cy)) = stack.pop() {
             let idx = self.idx(cx, cy);
             if self.cells[idx].state != CellState::Hidden {
