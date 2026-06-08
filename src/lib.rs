@@ -127,12 +127,21 @@ impl MinesweeperGame {
     }
 
     fn initialize(&mut self, safe_x: usize, safe_y: usize) {
-        let safe = self.idx(safe_x, safe_y);
+        let mut safe_zone = Vec::with_capacity(9);
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let nx = safe_x as i32 + dx;
+                let ny = safe_y as i32 + dy;
+                if nx >= 0 && ny >= 0 && nx < self.width as i32 && ny < self.height as i32 {
+                    safe_zone.push((ny as usize) * self.width + (nx as usize));
+                }
+            }
+        }
 
         // Collect candidate positions and shuffle them with fastrand.
-        let mut positions: Vec<usize> = (0..self.width * self.height)
-            .filter(|&i| i != safe)
-            .collect();
+        let mut positions = (0..self.width * self.height)
+            .filter(|i| !safe_zone.contains(i))
+            .collect::<Vec<_>>();
 
         // Partial Fisher-Yates – only shuffle the first `mines` elements.
         let mines = self.mines.min(positions.len());
@@ -190,9 +199,7 @@ impl MinesweeperGame {
         let mut stack = vec![(x, y)];
         if is_first_click {
             for (nx, ny) in self.neighbors(x, y) {
-                if (nx == x || ny == y) && !self.cells[self.idx(nx, ny)].is_mine {
-                    stack.push((nx, ny));
-                }
+                stack.push((nx, ny));
             }
         }
         while let Some((cx, cy)) = stack.pop() {
