@@ -10,9 +10,37 @@ fn run() {
     };
     use xtask_wasm::wasm_bindgen::JsCast as _;
 
+    #[derive(Clone, Copy, PartialEq)]
+    enum Preset {
+        Beginner,
+        Intermediate,
+        Expert,
+    }
+
+    impl Preset {
+        const ALL: &'static [Preset] = &[Self::Beginner, Self::Intermediate, Self::Expert];
+
+        fn label(self) -> &'static str {
+            match self {
+                Self::Beginner => "Beginner (9×9, 10 mines)",
+                Self::Intermediate => "Intermediate (16×16, 40 mines)",
+                Self::Expert => "Expert (30×16, 99 mines)",
+            }
+        }
+
+        fn dims(self) -> (usize, usize, usize) {
+            match self {
+                Self::Beginner => (9, 9, 10),
+                Self::Intermediate => (16, 16, 40),
+                Self::Expert => (30, 16, 99),
+            }
+        }
+    }
+
     struct MinesweeperApp {
         game: MinesweeperGame,
-        selected_preset: usize,
+        selected_preset: Preset,
+        question_marks: bool,
         selected_cell: Option<(usize, usize)>,
         camera: BoardCamera,
         dark_mode: bool,
@@ -48,7 +76,8 @@ fn run() {
         fn default() -> Self {
             Self {
                 game: MinesweeperGame::new(9, 9, 10),
-                selected_preset: 0,
+                selected_preset: Preset::Beginner,
+                question_marks: true,
                 selected_cell: None,
                 camera: BoardCamera {
                     offset: egui::Vec2::ZERO,
@@ -102,23 +131,6 @@ fn run() {
                 app.mobile_refit_pending = false;
             }
 
-            fn preset_dims(preset_idx: usize, mobile: bool) -> (usize, usize, usize) {
-                match preset_idx {
-                    0 => (9, 9, 10),
-                    1 => (16, 16, 40),
-                    _ if mobile => (16, 30, 99),
-                    _ => (30, 16, 99),
-                }
-            }
-
-            fn desktop_preset_label(preset_idx: usize) -> &'static str {
-                match preset_idx {
-                    0 => "Beginner (9×9, 10 mines)",
-                    1 => "Intermediate (16×16, 40 mines)",
-                    _ => "Expert (30×16, 99 mines)",
-                }
-            }
-
             fn mobile_cell_at_pointer(
                 app: &MinesweeperApp,
                 board_rect: egui::Rect,
@@ -159,7 +171,6 @@ fn run() {
             let mobile = is_mobile(ui);
 
             if !self.theme_initialized {
-                // Use system/browser preference when available; fallback to dark.
                 self.dark_mode = {
                     web_sys::window()
                         .and_then(|w| w.match_media("(prefers-color-scheme: dark)").ok().flatten())
@@ -173,103 +184,92 @@ fn run() {
             } else {
                 egui::Visuals::light()
             });
-
             let bg = ui.max_rect();
             ui.painter()
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
-            if mobile {
-                ui.add_space(10.0);
-            }
-            ui.vertical_centered(|ui| {
-                ui.heading("Minesweeper");
-                ui.add_space(4.0);
-            });
-
             if !mobile {
-                ui.vertical_centered(|ui| {
-                    ui.horizontal(|ui| {
-                        for i in 0..3 {
-                            if ui
-                                .selectable_label(
-                                    self.selected_preset == i,
-                                    desktop_preset_label(i),
-                                )
-                                .clicked()
-                            {
-                                self.selected_preset = i;
-                                let (w, h, m) = preset_dims(i, false);
-                                self.game = MinesweeperGame::new(w, h, m);
-                            }
-                        }
-                    });
+                let flags = self.game.flags_placed();
+                let remaining = (self.game.mines as isize) - (flags as isize);
 
-                    ui.add_space(6.0);
-
-                    let flags = self.game.flags_placed();
-                    let remaining = (self.game.mines as isize) - (flags as isize);
-                    ui.horizontal(|ui| {
-                        ui.label(format!("Flags: {flags}  |  Mines remaining: {remaining}"));
-                        ui.checkbox(&mut self.dark_mode, "Dark mode");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("New Game").clicked() {
-                                self.game.reset();
+                egui::Panel::top("top_bar")
+                    .frame(egui::Frame::new().inner_margin(4.0))
+                    .show_inside(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.visuals_mut().button_frame = false;
+                            ui.add_space(8.0);
+                            egui::widgets::global_theme_preference_switch(ui);
+                            ui.toggle_value(&mut self.question_marks, "❓");
+                            ui.separator();
+                            for &preset in Preset::ALL {
+                                if ui
+                                    .selectable_label(
+                                        self.selected_preset == preset,
+                                        preset.label(),
+                                    )
+                                    .clicked()
+                                {
+                                    self.selected_preset = preset;
+                                    let (w, h, m) = preset.dims();
+                                    self.game = MinesweeperGame::new(w, h, m);
+                                }
                             }
+                            ui.separator();
+                            ui.label(format!("🚩 {flags}  💣 {remaining}"));
+                            match self.game.status {
+                                GameStatus::Won => {
+                                    ui.colored_label(egui::Color32::GREEN, "You won!");
+                                }
+                                GameStatus::Lost => {
+                                    ui.colored_label(egui::Color32::RED, "Boom!");
+                                }
+                                GameStatus::Playing => {}
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("New Game").clicked() {
+                                        self.game.reset();
+                                    }
+                                },
+                            );
                         });
                     });
 
-                    ui.add_space(4.0);
-
-                    match self.game.status {
-                        GameStatus::Won => {
-                            ui.colored_label(
-                                egui::Color32::GREEN,
-                                "You won! Click 'New Game' to play again.",
-                            );
-                        }
-                        GameStatus::Lost => {
-                            ui.colored_label(
-                                egui::Color32::RED,
-                                "Boom! Click 'New Game' to try again.",
-                            );
-                        }
-                        GameStatus::Playing => {}
-                    }
-
-                    ui.add_space(4.0);
-
-                    egui::ScrollArea::both().show(ui, |ui| {
-                        ui.add(MinesweeperWidget::new(&mut self.game).cell_size(34.0));
-                    });
+                ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                    ui.add(
+                        MinesweeperWidget::new(&mut self.game).question_marks(self.question_marks),
+                    );
                 });
                 return;
             }
 
             // Mobile UI
+            ui.add_space(10.0);
+            ui.vertical_centered(|ui| {
+                ui.heading("Minesweeper");
+                ui.add_space(4.0);
+            });
+
             ui.spacing_mut().interact_size.y = 44.0;
-            let mobile_presets = [
-                ("Beginner", "9x9, 10 mines"),
-                ("Intermediate", "16x16, 40 mines"),
-                ("Expert", "16x30, 99 mines"),
-            ];
 
             egui::Panel::top("mobile_topbar")
                 .resizable(false)
                 .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt("mobile_preset")
-                            .selected_text(mobile_presets[self.selected_preset].0)
+                            .selected_text(self.selected_preset.label())
                             .show_ui(ui, |ui| {
-                                for (i, (name, details)) in mobile_presets.iter().enumerate() {
+                                for &preset in Preset::ALL {
                                     if ui
                                         .selectable_label(
-                                            self.selected_preset == i,
-                                            format!("{name} ({details})"),
+                                            self.selected_preset == preset,
+                                            preset.label(),
                                         )
                                         .clicked()
                                     {
-                                        self.selected_preset = i;
-                                        let (w, h, m) = preset_dims(i, true);
+                                        self.selected_preset = preset;
+                                        let (w, h, m) = preset.dims();
                                         self.game = MinesweeperGame::new(w, h, m);
                                         reset_mobile_view(
                                             &mut self.camera,
@@ -298,16 +298,22 @@ fn run() {
                         let flags = self.game.flags_placed();
                         let remaining = (self.game.mines as isize) - (flags as isize);
                         ui.label(format!("Flags: {flags} | Mines: {remaining}"));
+                        ui.toggle_value(&mut self.question_marks, "❓");
                         ui.checkbox(&mut self.dark_mode, "Dark");
+                    });
 
-                        match self.game.status {
-                            GameStatus::Won => {
-                                ui.colored_label(egui::Color32::GREEN, "You won!");
-                            }
-                            GameStatus::Lost => {
-                                ui.colored_label(egui::Color32::RED, "Boom!");
-                            }
-                            GameStatus::Playing => {}
+                    match self.game.status {
+                        GameStatus::Won => {
+                            ui.colored_label(egui::Color32::GREEN, "You won!");
+                        }
+                        GameStatus::Lost => {
+                            ui.colored_label(egui::Color32::RED, "Boom!");
+                        }
+                        GameStatus::Playing => {}
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("New Game").clicked() {
+                            self.game.reset();
                         }
                     });
                 });
@@ -436,7 +442,8 @@ fn run() {
                 .interaction_mode(InteractionMode::SelectOnly)
                 .selected_cell(&mut self.selected_cell)
                 .camera(&mut self.camera)
-                .center_small_board_in_viewport(true);
+                .center_small_board_in_viewport(true)
+                .question_marks(self.question_marks);
             ui.put(board_rect, board_widget);
         }
     }

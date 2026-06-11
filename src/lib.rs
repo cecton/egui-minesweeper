@@ -155,12 +155,21 @@ impl MinesweeperGame {
     }
 
     fn initialize(&mut self, safe_x: usize, safe_y: usize) {
-        let safe = self.idx(safe_x, safe_y);
+        let mut safe_zone = Vec::with_capacity(9);
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let nx = safe_x as i32 + dx;
+                let ny = safe_y as i32 + dy;
+                if nx >= 0 && ny >= 0 && nx < self.width as i32 && ny < self.height as i32 {
+                    safe_zone.push((ny as usize) * self.width + (nx as usize));
+                }
+            }
+        }
 
         // Collect candidate positions and shuffle them with fastrand.
-        let mut positions: Vec<usize> = (0..self.width * self.height)
-            .filter(|&i| i != safe)
-            .collect();
+        let mut positions = (0..self.width * self.height)
+            .filter(|i| !safe_zone.contains(i))
+            .collect::<Vec<_>>();
 
         // Partial Fisher-Yates – only shuffle the first `mines` elements.
         let mines = self.mines.min(positions.len());
@@ -208,22 +217,23 @@ impl MinesweeperGame {
         if self.status != GameStatus::Playing {
             return;
         }
-        if !self.initialized {
-            self.initialize(x, y);
-        }
 
         // Iterative flood-fill to avoid stack overflows on large boards.
         let mut stack = vec![(x, y)];
+        if !self.initialized {
+            self.initialize(x, y);
+            stack.extend(self.neighbors(x, y));
+        }
+
         while let Some((cx, cy)) = stack.pop() {
             let idx = self.idx(cx, cy);
-            if !matches!(self.cells[idx].state, CellState::Hidden | CellState::Marked) {
+            if self.cells[idx].state != CellState::Hidden {
                 continue;
             }
             self.cells[idx].state = CellState::Revealed;
 
             if self.cells[idx].is_mine {
                 self.status = GameStatus::Lost;
-                // Reveal all mines on loss.
                 for cell in &mut self.cells {
                     if cell.is_mine {
                         cell.state = CellState::Revealed;
@@ -233,9 +243,7 @@ impl MinesweeperGame {
             }
 
             if self.cells[idx].adjacent_mines == 0 {
-                for neighbor in self.neighbors(cx, cy) {
-                    stack.push(neighbor);
-                }
+                stack.extend(self.neighbors(cx, cy));
             }
         }
 
@@ -274,6 +282,7 @@ pub struct MinesweeperWidget<'a> {
     selected_cell: Option<&'a mut Option<(usize, usize)>>,
     camera: Option<&'a mut BoardCamera>,
     center_small_board_in_viewport: bool,
+    question_marks: bool,
 }
 
 impl<'a> MinesweeperWidget<'a> {
@@ -285,6 +294,7 @@ impl<'a> MinesweeperWidget<'a> {
             selected_cell: None,
             camera: None,
             center_small_board_in_viewport: false,
+            question_marks: false,
         }
     }
 
@@ -319,6 +329,13 @@ impl<'a> MinesweeperWidget<'a> {
         self.center_small_board_in_viewport = center;
         self
     }
+
+    /// When enabled, right-clicking cycles through hidden -> flag -> question mark -> hidden.
+    /// When disabled (the default), the question mark state is skipped entirely.
+    pub fn question_marks(mut self, enabled: bool) -> Self {
+        self.question_marks = enabled;
+        self
+    }
 }
 
 fn number_color(n: u8, dark_mode: bool) -> Color32 {
@@ -349,17 +366,30 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32, v
 
     match cell.state {
         CellState::Hidden => draw_hidden_base(painter, inner, rounding, visuals),
-        CellState::Flagged | CellState::Marked => {
+        CellState::Flagged => {
             draw_hidden_base(painter, inner, rounding, visuals);
-            let flag_color = match (cell.state, dark_mode) {
-                (CellState::Flagged, true) => Color32::from_rgb(255, 120, 120),
-                (CellState::Flagged, false) => Color32::from_rgb(220, 0, 0),
-                (CellState::Marked, true) => Color32::from_rgb(130, 180, 255),
-                (CellState::Marked, false) => Color32::from_rgb(0, 0, 255),
-                _ => unreachable!(),
+            let flag_color = if dark_mode {
+                Color32::from_rgb(255, 120, 120)
+            } else {
+                Color32::from_rgb(220, 0, 0)
             };
             let pole_color = visuals.widgets.noninteractive.fg_stroke.color;
             draw_flag(painter, inner, cell_size, flag_color, pole_color);
+        }
+        CellState::Marked => {
+            draw_hidden_base(painter, inner, rounding, visuals);
+            let mark_color = if dark_mode {
+                Color32::from_rgb(130, 180, 255)
+            } else {
+                Color32::from_rgb(0, 0, 255)
+            };
+            painter.text(
+                rect.center(),
+                Align2::CENTER_CENTER,
+                "?",
+                FontId::monospace(cell_size * 0.58),
+                mark_color,
+            );
         }
         CellState::Revealed => {
             if cell.is_mine {
@@ -510,6 +540,12 @@ impl Widget for MinesweeperWidget<'_> {
                                     self.game.reveal(cx, cy);
                                 } else {
                                     self.game.cycle_flag(cx, cy);
+                                    if !self.question_marks {
+                                        let idx = cy * self.game.width + cx;
+                                        if self.game.cells[idx].state == CellState::Marked {
+                                            self.game.cycle_flag(cx, cy);
+                                        }
+                                    }
                                 }
                             }
                             InteractionMode::SelectOnly => {
