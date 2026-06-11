@@ -43,8 +43,6 @@ fn run() {
         question_marks: bool,
         selected_cell: Option<(usize, usize)>,
         camera: BoardCamera,
-        dark_mode: bool,
-        theme_initialized: bool,
         mobile_refit_pending: bool,
         mobile_gestures: MobileGestureState,
     }
@@ -83,8 +81,6 @@ fn run() {
                     offset: egui::Vec2::ZERO,
                     zoom: 1.6,
                 },
-                dark_mode: false,
-                theme_initialized: false,
                 mobile_refit_pending: true,
                 mobile_gestures: MobileGestureState::default(),
             }
@@ -170,20 +166,6 @@ fn run() {
 
             let mobile = is_mobile(ui);
 
-            if !self.theme_initialized {
-                self.dark_mode = {
-                    web_sys::window()
-                        .and_then(|w| w.match_media("(prefers-color-scheme: dark)").ok().flatten())
-                        .map(|m| m.matches())
-                        .unwrap_or(true)
-                };
-                self.theme_initialized = true;
-            }
-            ui.ctx().set_visuals(if self.dark_mode {
-                egui::Visuals::dark()
-            } else {
-                egui::Visuals::light()
-            });
             let bg = ui.max_rect();
             ui.painter()
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
@@ -299,7 +281,7 @@ fn run() {
                         let remaining = (self.game.mines as isize) - (flags as isize);
                         ui.label(format!("Flags: {flags} | Mines: {remaining}"));
                         ui.toggle_value(&mut self.question_marks, "❓");
-                        ui.checkbox(&mut self.dark_mode, "Dark");
+                        egui::widgets::global_theme_preference_switch(ui);
                     });
 
                     match self.game.status {
