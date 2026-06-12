@@ -263,6 +263,51 @@ impl MinesweeperGame {
             CellState::Revealed => {}
         }
     }
+
+    /// Set a cell directly to `Flagged` without cycling through the normal
+    /// [Hidden → Flagged → Marked → Hidden](Self::cycle_flag) sequence.
+    pub fn flag(&mut self, x: usize, y: usize) {
+        if self.status != GameStatus::Playing {
+            return;
+        }
+
+        let idx = self.idx(x, y);
+        if self.cells[idx].state == CellState::Revealed {
+            return;
+        }
+
+        self.cells[idx].state = CellState::Flagged;
+    }
+
+    /// Set a cell directly to `Marked` without cycling through the normal
+    /// [Hidden → Flagged → Marked → Hidden](Self::cycle_flag) sequence.
+    pub fn mark(&mut self, x: usize, y: usize) {
+        if self.status != GameStatus::Playing {
+            return;
+        }
+
+        let idx = self.idx(x, y);
+        if self.cells[idx].state == CellState::Revealed {
+            return;
+        }
+
+        self.cells[idx].state = CellState::Marked;
+    }
+
+    /// Clear any marker on a cell, returning it to `Hidden`.
+    /// This removes both flags and question marks.
+    pub fn clear_marker(&mut self, x: usize, y: usize) {
+        if self.status != GameStatus::Playing {
+            return;
+        }
+
+        let idx = self.idx(x, y);
+        if self.cells[idx].state == CellState::Revealed {
+            return;
+        }
+
+        self.cells[idx].state = CellState::Hidden;
+    }
 }
 
 // ─── egui widget ───────────────────────────────────────────────────────────────
