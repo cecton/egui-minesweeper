@@ -124,44 +124,83 @@ fn run() {
             egui::Panel::bottom("action_bar")
                 .resizable(false)
                 .show_inside(ui, |ui| {
-                    let on_unrevealed = match self.selected_cell {
-                        Some((x, y)) => {
-                            let cell = &self.game.cells[y * self.game.width + x];
-                            matches!(
-                                cell.state,
-                                CellState::Hidden | CellState::Flagged | CellState::Marked
-                            )
-                        }
-                        None => false,
-                    };
+                    ui.spacing_mut().interact_size.y = 48.0;
+
                     let playing = self.game.status == GameStatus::Playing;
                     let has_selection = self.selected_cell.is_some();
 
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(
-                                playing && has_selection && on_unrevealed,
-                                egui::Button::new("👁 Reveal"),
+                    let (on_hidden, on_flagged, on_marked) = match self.selected_cell {
+                        Some((x, y)) => {
+                            let cell = &self.game.cells[y * self.game.width + x];
+                            (
+                                matches!(cell.state, CellState::Hidden),
+                                matches!(cell.state, CellState::Flagged),
+                                matches!(cell.state, CellState::Marked),
                             )
-                            .clicked()
-                        {
-                            if let Some((x, y)) = self.selected_cell.take() {
-                                self.game.reveal(x, y);
-                            }
                         }
+                        None => (false, false, false),
+                    };
 
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let centered = egui::Layout::top_down(egui::Align::Center)
+                        .with_cross_align(egui::Align::Center);
+
+                    ui.columns(3, |columns| {
+                        columns[0].with_layout(centered, |ui| {
                             if ui
-                                .add_enabled(playing && has_selection, egui::Button::new("🚩 Flag"))
+                                .add_enabled(
+                                    playing && has_selection && on_hidden,
+                                    egui::Button::new("👁 Reveal").min_size(egui::vec2(70.0, 0.0)),
+                                )
+                                .clicked()
+                            {
+                                if let Some((x, y)) = self.selected_cell.take() {
+                                    self.game.reveal(x, y);
+                                }
+                            }
+                        });
+
+                        columns[1].with_layout(centered, |ui| {
+                            if ui
+                                .add_enabled(
+                                    playing && has_selection,
+                                    egui::Button::new(if on_flagged {
+                                        "🚩Unflag"
+                                    } else {
+                                        "🚩 Flag"
+                                    })
+                                    .min_size(egui::vec2(70.0, 0.0)),
+                                )
                                 .clicked()
                             {
                                 if let Some((x, y)) = self.selected_cell {
-                                    self.game.cycle_flag(x, y);
-                                    if !self.question_marks {
-                                        if self.game.cells[y * self.game.width + x].state
-                                            == CellState::Marked
-                                        {
-                                            self.game.cycle_flag(x, y);
+                                    if on_flagged {
+                                        self.game.clear_marker(x, y);
+                                    } else {
+                                        self.game.flag(x, y);
+                                    }
+                                }
+                            }
+                        });
+
+                        columns[2].with_layout(centered, |ui| {
+                            if self.question_marks {
+                                if ui
+                                    .add_enabled(
+                                        playing && has_selection,
+                                        egui::Button::new(if on_marked {
+                                            "❓Unmark"
+                                        } else {
+                                            "❓ Mark"
+                                        })
+                                        .min_size(egui::vec2(70.0, 0.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some((x, y)) = self.selected_cell {
+                                        if on_marked {
+                                            self.game.clear_marker(x, y);
+                                        } else {
+                                            self.game.mark(x, y);
                                         }
                                     }
                                 }

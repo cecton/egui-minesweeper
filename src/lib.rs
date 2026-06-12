@@ -587,7 +587,10 @@ impl Widget for MinesweeperWidget<'_> {
                         match self.interaction_mode {
                             InteractionMode::Direct => {
                                 if response.clicked() {
-                                    self.game.reveal(cx, cy);
+                                    let idx = cy * self.game.width + cx;
+                                    if self.game.cells[idx].state == CellState::Hidden {
+                                        self.game.reveal(cx, cy);
+                                    }
                                 } else {
                                     self.game.cycle_flag(cx, cy);
                                     if !self.question_marks {
