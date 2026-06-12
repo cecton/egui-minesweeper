@@ -534,7 +534,7 @@ impl Widget for MinesweeperWidget<'_> {
         let centered_camera = camera.is_some() && self.center_small_board_in_viewport;
 
         let board_pixel_size = board_size * zoom;
-        let view_shift = if centered_camera {
+        let camera_shift = if centered_camera {
             Vec2::new(
                 ((viewport_size.x - board_pixel_size.x) * 0.5).max(0.0),
                 ((viewport_size.y - board_pixel_size.y) * 0.5).max(0.0),
@@ -542,19 +542,6 @@ impl Widget for MinesweeperWidget<'_> {
         } else {
             Vec2::ZERO
         };
-        let camera_shift = if centered_camera {
-            view_shift
-        } else {
-            Vec2::ZERO
-        };
-
-        // Clamp camera to board bounds.
-        if camera.is_some() {
-            let max_x = (board_size.x - view_in_board.x).max(0.0);
-            let max_y = (board_size.y - view_in_board.y).max(0.0);
-            offset.x = offset.x.clamp(0.0, max_x);
-            offset.y = offset.y.clamp(0.0, max_y);
-        }
 
         // ── Input handling ────────────────────────────────────────────────────
         if response.dragged() && camera.is_some() {
