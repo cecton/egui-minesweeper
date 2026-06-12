@@ -656,7 +656,10 @@ impl Widget for MinesweeperWidget<'_> {
         }
 
         if let Some((sx, sy)) = selected_cell.as_deref().copied().flatten() {
-            if sx < self.game.width && sy < self.game.height {
+            if sx < self.game.width
+                && sy < self.game.height
+                && self.game.cells[sy * self.game.width + sx].state != CellState::Revealed
+            {
                 let sel_min = if camera.is_some() {
                     origin
                         + camera_shift
@@ -681,7 +684,6 @@ impl Widget for MinesweeperWidget<'_> {
 
         if let Some(cam) = camera {
             cam.offset = offset;
-            cam.zoom = zoom;
         }
 
         response

@@ -141,15 +141,15 @@ fn run() {
                         None => (false, false, false),
                     };
 
-                    let centered = egui::Layout::top_down(egui::Align::Center)
+                    let center = egui::Layout::top_down(egui::Align::Center)
                         .with_cross_align(egui::Align::Center);
 
                     ui.columns(3, |columns| {
-                        columns[0].with_layout(centered, |ui| {
+                        columns[0].with_layout(center, |ui| {
                             if ui
                                 .add_enabled(
                                     playing && has_selection && on_hidden,
-                                    egui::Button::new("👁 Reveal").min_size(egui::vec2(70.0, 0.0)),
+                                    egui::Button::new("👁 Reveal").min_size(egui::vec2(90.0, 0.0)),
                                 )
                                 .clicked()
                             {
@@ -159,7 +159,7 @@ fn run() {
                             }
                         });
 
-                        columns[1].with_layout(centered, |ui| {
+                        columns[1].with_layout(center, |ui| {
                             if ui
                                 .add_enabled(
                                     playing && has_selection,
@@ -168,7 +168,7 @@ fn run() {
                                     } else {
                                         "🚩 Flag"
                                     })
-                                    .min_size(egui::vec2(70.0, 0.0)),
+                                    .min_size(egui::vec2(90.0, 0.0)),
                                 )
                                 .clicked()
                             {
@@ -182,7 +182,7 @@ fn run() {
                             }
                         });
 
-                        columns[2].with_layout(centered, |ui| {
+                        columns[2].with_layout(center, |ui| {
                             if self.question_marks {
                                 if ui
                                     .add_enabled(
@@ -192,7 +192,7 @@ fn run() {
                                         } else {
                                             "❓ Mark"
                                         })
-                                        .min_size(egui::vec2(70.0, 0.0)),
+                                        .min_size(egui::vec2(90.0, 0.0)),
                                     )
                                     .clicked()
                                 {
