@@ -85,6 +85,8 @@ fn run() {
     }
 
     impl MinesweeperApp {
+        const MOBILE_CELL_SIZE: f32 = 34.0;
+
         fn is_mobile(ui: &egui::Ui) -> bool {
             let screen = ui.ctx().content_rect();
             let width_small = screen.width() < 900.0;
@@ -101,10 +103,9 @@ fn run() {
 
         fn fit_mobile_camera(&mut self, board_view_size: egui::Vec2) {
             let board_view_size = board_view_size.max(egui::Vec2::splat(1.0));
-            let cell_size = 34.0;
             let board_size = egui::vec2(
-                self.game.width as f32 * cell_size,
-                self.game.height as f32 * cell_size,
+                self.game.width as f32 * Self::MOBILE_CELL_SIZE,
+                self.game.height as f32 * Self::MOBILE_CELL_SIZE,
             );
             let fit_x = board_view_size.x / board_size.x.max(1.0);
             let fit_y = board_view_size.y / board_size.y.max(1.0);
@@ -281,7 +282,7 @@ fn run() {
             }
 
             let board_widget = MinesweeperWidget::new(&mut self.game)
-                .cell_size(34.0)
+                .cell_size(Self::MOBILE_CELL_SIZE)
                 .interaction_mode(InteractionMode::SelectOnly)
                 .selected_cell(&mut self.selected_cell)
                 .camera(&mut self.camera)
@@ -290,10 +291,9 @@ fn run() {
             ui.put(board_rect, board_widget);
 
             if self.game.status == GameStatus::Playing {
-                let cell_size = 34.0;
                 let board_size = egui::vec2(
-                    self.game.width as f32 * cell_size,
-                    self.game.height as f32 * cell_size,
+                    self.game.width as f32 * Self::MOBILE_CELL_SIZE,
+                    self.game.height as f32 * Self::MOBILE_CELL_SIZE,
                 );
                 let viewport_size = board_rect.size().max(egui::Vec2::splat(1.0));
 

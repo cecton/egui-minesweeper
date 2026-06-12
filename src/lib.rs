@@ -522,7 +522,12 @@ impl Widget for MinesweeperWidget<'_> {
             board_size
         };
 
-        let (response, painter) = ui.allocate_painter(total, Sense::click_and_drag());
+        let sense = if camera.is_some() {
+            Sense::click_and_drag()
+        } else {
+            Sense::click()
+        };
+        let (response, painter) = ui.allocate_painter(total, sense);
         let origin = response.rect.min;
         let viewport_size = response.rect.size().max(Vec2::splat(1.0));
         let view_in_board = viewport_size / zoom;
