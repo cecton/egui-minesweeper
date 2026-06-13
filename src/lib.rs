@@ -510,7 +510,7 @@ impl Widget for MinesweeperWidget<'_> {
         let mut zoom = 1.0_f32;
         let mut offset = Vec2::ZERO;
         if let Some(cam) = camera.as_deref_mut() {
-            cam.zoom = cam.zoom.clamp(0.5, 4.0);
+            cam.zoom = cam.zoom.clamp(0.25, 4.0);
             zoom = cam.zoom;
             offset = cam.offset;
         }
@@ -551,6 +551,30 @@ impl Widget for MinesweeperWidget<'_> {
             let max_y = (board_size.y - view_in_board.y).max(0.0);
             offset.x = offset.x.clamp(0.0, max_x);
             offset.y = offset.y.clamp(0.0, max_y);
+        }
+
+        // ── Zoom (scroll/pinch) ──────────────────────────────────────────────
+        if let Some(cam) = camera.as_deref_mut() {
+            let scroll = ui.input(|i| i.smooth_scroll_delta);
+            if scroll.y != 0.0 {
+                let zoom_factor = 1.0 + scroll.y.signum() * (scroll.y.abs() * 0.005).min(0.5);
+                let new_zoom = (zoom * zoom_factor).clamp(0.25, 4.0);
+                let pivot = ui
+                    .input(|i| i.pointer.hover_pos())
+                    .map(|p| p - origin - camera_shift);
+                if let Some(local) = pivot {
+                    if local.x >= 0.0
+                        && local.y >= 0.0
+                        && local.x < viewport_size.x
+                        && local.y < viewport_size.y
+                    {
+                        let world = local / zoom + offset;
+                        offset = world - local / new_zoom;
+                    }
+                }
+                zoom = new_zoom;
+                cam.zoom = new_zoom;
+            }
         }
 
         if (response.clicked() || response.secondary_clicked())
@@ -643,8 +667,10 @@ impl Widget for MinesweeperWidget<'_> {
         }
 
         if let Some((sx, sy)) = selected_cell.as_deref().copied().flatten() {
-            if sx < self.game.width
-                && sy < self.game.height
+            if sx >= start_x
+                && sx < end_x
+                && sy >= start_y
+                && sy < end_y
                 && self.game.cells[sy * self.game.width + sx].state != CellState::Revealed
             {
                 let sel_min = if camera.is_some() {

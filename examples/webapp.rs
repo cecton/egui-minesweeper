@@ -6,7 +6,7 @@
 fn run() {
     use eframe::egui;
     use egui_minesweeper::{
-        BoardCamera, CellState, GameStatus, InteractionMode, MinesweeperGame, MinesweeperWidget,
+        CellState, GameStatus, InteractionMode, MinesweeperGame, MinesweeperWidget,
     };
     use xtask_wasm::wasm_bindgen::JsCast as _;
 
@@ -28,14 +28,6 @@ fn run() {
             }
         }
 
-        fn short_label(self) -> &'static str {
-            match self {
-                Self::Beginner => "Beginner",
-                Self::Intermediate => "Intermediate",
-                Self::Expert => "Expert",
-            }
-        }
-
         fn dims(self) -> (usize, usize, usize) {
             match self {
                 Self::Beginner => (9, 9, 10),
@@ -50,8 +42,7 @@ fn run() {
         selected_preset: Preset,
         question_marks: bool,
         selected_cell: Option<(usize, usize)>,
-        camera: BoardCamera,
-        mobile_refit_pending: bool,
+        scene_rect: Option<egui::Rect>,
     }
 
     impl Default for MinesweeperApp {
@@ -61,11 +52,7 @@ fn run() {
                 selected_preset: Preset::Beginner,
                 question_marks: true,
                 selected_cell: None,
-                camera: BoardCamera {
-                    offset: egui::Vec2::ZERO,
-                    zoom: 1.0,
-                },
-                mobile_refit_pending: true,
+                scene_rect: None,
             }
         }
     }
@@ -88,44 +75,20 @@ fn run() {
         const MOBILE_CELL_SIZE: f32 = 34.0;
 
         fn is_mobile(ui: &egui::Ui) -> bool {
-            let screen = ui.ctx().content_rect();
-            let width_small = screen.width() < 900.0;
-            let touch = ui.ctx().input(|i| i.multi_touch().is_some());
-            width_small || touch
-        }
-
-        fn reset_mobile_view(&mut self) {
-            self.selected_cell = None;
-            self.camera.offset = egui::Vec2::ZERO;
-            self.camera.zoom = 1.0;
-            self.mobile_refit_pending = true;
-        }
-
-        fn fit_mobile_camera(&mut self, board_view_size: egui::Vec2) {
-            let board_view_size = board_view_size.max(egui::Vec2::splat(1.0));
-            let board_size = egui::vec2(
-                self.game.width as f32 * Self::MOBILE_CELL_SIZE,
-                self.game.height as f32 * Self::MOBILE_CELL_SIZE,
-            );
-            let fit_x = board_view_size.x / board_size.x.max(1.0);
-            let fit_y = board_view_size.y / board_size.y.max(1.0);
-            let zoom = (fit_x.min(fit_y) * 0.98).clamp(0.5, 4.0);
-
-            let view_in_board = board_view_size / zoom;
-            let max_x = (board_size.x - view_in_board.x).max(0.0);
-            let max_y = (board_size.y - view_in_board.y).max(0.0);
-
-            self.camera.zoom = zoom;
-            self.camera.offset = egui::vec2(max_x * 0.5, max_y * 0.5);
-            self.mobile_refit_pending = false;
+            let content = ui.ctx().content_rect();
+            let width_small = content.width() < 900.0;
+            let touch_device = web_sys::window()
+                .and_then(|w| w.match_media("(pointer: coarse)").ok())
+                .flatten()
+                .map_or(false, |mql| mql.matches());
+            width_small || touch_device
         }
 
         fn show_action_bar(&mut self, ui: &mut egui::Ui) {
             egui::Panel::bottom("action_bar")
                 .resizable(false)
+                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 4)))
                 .show_inside(ui, |ui| {
-                    ui.spacing_mut().interact_size.y = 48.0;
-
                     let playing = self.game.status == GameStatus::Playing;
                     let has_selection = self.selected_cell.is_some();
 
@@ -149,7 +112,7 @@ fn run() {
                             if ui
                                 .add_enabled(
                                     playing && has_selection && on_hidden,
-                                    egui::Button::new("👁 Reveal").min_size(egui::vec2(90.0, 0.0)),
+                                    egui::Button::new("👁").min_size(egui::vec2(64.0, 64.0)),
                                 )
                                 .clicked()
                             {
@@ -163,12 +126,7 @@ fn run() {
                             if ui
                                 .add_enabled(
                                     playing && has_selection,
-                                    egui::Button::new(if on_flagged {
-                                        "🚩Unflag"
-                                    } else {
-                                        "🚩 Flag"
-                                    })
-                                    .min_size(egui::vec2(90.0, 0.0)),
+                                    egui::Button::new("🚩").min_size(egui::vec2(64.0, 64.0)),
                                 )
                                 .clicked()
                             {
@@ -187,12 +145,7 @@ fn run() {
                                 if ui
                                     .add_enabled(
                                         playing && has_selection,
-                                        egui::Button::new(if on_marked {
-                                            "❓Unmark"
-                                        } else {
-                                            "❓ Mark"
-                                        })
-                                        .min_size(egui::vec2(90.0, 0.0)),
+                                        egui::Button::new("❓").min_size(egui::vec2(64.0, 64.0)),
                                     )
                                     .clicked()
                                 {
@@ -258,30 +211,56 @@ fn run() {
         }
 
         fn mobile_ui(&mut self, ui: &mut egui::Ui) {
-            ui.spacing_mut().interact_size.y = 44.0;
+            ui.spacing_mut().interact_size.y = 64.0;
 
             egui::Panel::top("mobile_topbar")
                 .resizable(false)
+                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
                 .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt("mobile_preset")
-                            .selected_text(self.selected_preset.short_label())
-                            .show_ui(ui, |ui| {
-                                for &preset in Preset::ALL {
-                                    if ui
-                                        .selectable_label(
-                                            self.selected_preset == preset,
-                                            preset.label(),
-                                        )
-                                        .clicked()
-                                    {
-                                        self.selected_preset = preset;
-                                        let (w, h, m) = preset.dims();
-                                        self.game = MinesweeperGame::new(w, h, m);
-                                        self.reset_mobile_view();
-                                    }
+                        egui::containers::menu::MenuButton::from_button(
+                            egui::Button::new("☰").min_size(egui::vec2(64.0, 64.0)),
+                        )
+                        .ui(ui, |ui| {
+                            ui.spacing_mut().interact_size.y = 36.0;
+                            if ui.button("🔄 New Game").clicked() {
+                                self.game.reset();
+                                self.selected_cell = None;
+                                self.scene_rect = None;
+                                ui.close();
+                            }
+                            ui.separator();
+                            ui.label("Difficulty");
+                            for &preset in Preset::ALL {
+                                if ui
+                                    .selectable_label(
+                                        self.selected_preset == preset,
+                                        preset.label(),
+                                    )
+                                    .clicked()
+                                {
+                                    self.selected_preset = preset;
+                                    let (w, h, m) = preset.dims();
+                                    self.game = MinesweeperGame::new(w, h, m);
+                                    self.selected_cell = None;
+                                    self.scene_rect = None;
+                                    ui.close();
                                 }
-                            });
+                            }
+                            ui.separator();
+                            ui.label("Theme");
+                            let mut tp = ui.options(|o| o.theme_preference);
+                            ui.selectable_value(
+                                &mut tp,
+                                egui::ThemePreference::System,
+                                "💻 System",
+                            );
+                            ui.selectable_value(&mut tp, egui::ThemePreference::Light, "☀ Light");
+                            ui.selectable_value(&mut tp, egui::ThemePreference::Dark, "🌙 Dark");
+                            ui.ctx().set_theme(tp);
+                            ui.separator();
+                            ui.toggle_value(&mut self.question_marks, "❓ Question marks");
+                        });
 
                         match self.game.status {
                             GameStatus::Won => {
@@ -294,19 +273,6 @@ fn run() {
                         }
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("New Game").clicked() {
-                                self.game.reset();
-                                self.reset_mobile_view();
-                            }
-                        });
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.visuals_mut().button_frame = false;
-                        egui::widgets::global_theme_preference_switch(ui);
-                        ui.toggle_value(&mut self.question_marks, "❓");
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let flags = self.game.flags_placed();
                             let remaining = (self.game.mines as isize) - (flags as isize);
                             ui.label(format!("🚩 {flags}  💣 {remaining}"));
@@ -315,66 +281,29 @@ fn run() {
                 });
 
             self.show_action_bar(ui);
-            let board_rect = ui.available_rect_before_wrap();
-            if self.mobile_refit_pending {
-                self.fit_mobile_camera(board_rect.size());
-            }
 
-            let board_widget = MinesweeperWidget::new(&mut self.game)
-                .cell_size(Self::MOBILE_CELL_SIZE)
-                .interaction_mode(InteractionMode::SelectOnly)
-                .selected_cell(&mut self.selected_cell)
-                .camera(&mut self.camera)
-                .center_small_board_in_viewport(true)
-                .question_marks(self.question_marks);
-            ui.put(board_rect, board_widget);
+            let board_size = egui::vec2(
+                self.game.width as f32 * Self::MOBILE_CELL_SIZE,
+                self.game.height as f32 * Self::MOBILE_CELL_SIZE,
+            );
+            let mut scene_rect = self
+                .scene_rect
+                .unwrap_or_else(|| egui::Rect::from_min_size(egui::Pos2::ZERO, board_size));
 
-            if self.game.status == GameStatus::Playing {
-                let board_size = egui::vec2(
-                    self.game.width as f32 * Self::MOBILE_CELL_SIZE,
-                    self.game.height as f32 * Self::MOBILE_CELL_SIZE,
-                );
-                let viewport_size = board_rect.size().max(egui::Vec2::splat(1.0));
-
-                let pointer_pos = ui
-                    .ctx()
-                    .input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()));
-                let zoom_delta = ui.ctx().input(|i| {
-                    if i.multi_touch().is_some() {
-                        i.zoom_delta()
-                    } else {
-                        1.0
-                    }
+            egui::containers::Scene::new()
+                .zoom_range(0.25..=4.0)
+                .max_inner_size(board_size)
+                .show(ui, &mut scene_rect, |ui| {
+                    ui.add(
+                        MinesweeperWidget::new(&mut self.game)
+                            .cell_size(Self::MOBILE_CELL_SIZE)
+                            .interaction_mode(InteractionMode::SelectOnly)
+                            .selected_cell(&mut self.selected_cell)
+                            .question_marks(self.question_marks),
+                    );
                 });
-                if board_rect.contains(pointer_pos.unwrap_or(board_rect.center()))
-                    && (zoom_delta - 1.0).abs() > f32::EPSILON
-                {
-                    let old_zoom = self.camera.zoom;
-                    self.camera.zoom = (self.camera.zoom * zoom_delta).clamp(0.5, 4.0);
-                    if let Some(pos) = pointer_pos {
-                        let local = pos - board_rect.min;
-                        let board_pixel_size = board_size * old_zoom;
-                        let old_shift = egui::vec2(
-                            ((viewport_size.x - board_pixel_size.x) * 0.5).max(0.0),
-                            ((viewport_size.y - board_pixel_size.y) * 0.5).max(0.0),
-                        );
-                        let local_board = local - old_shift;
-                        let board_before = (local_board / old_zoom) + self.camera.offset;
-                        let new_board_pixel_size = board_size * self.camera.zoom;
-                        let new_shift = egui::vec2(
-                            ((viewport_size.x - new_board_pixel_size.x) * 0.5).max(0.0),
-                            ((viewport_size.y - new_board_pixel_size.y) * 0.5).max(0.0),
-                        );
-                        let local_board_new = local - new_shift;
-                        self.camera.offset = board_before - (local_board_new / self.camera.zoom);
-                    }
-                    let new_view_in_board = viewport_size / self.camera.zoom;
-                    let max_x = (board_size.x - new_view_in_board.x).max(0.0);
-                    let max_y = (board_size.y - new_view_in_board.y).max(0.0);
-                    self.camera.offset.x = self.camera.offset.x.clamp(0.0, max_x);
-                    self.camera.offset.y = self.camera.offset.y.clamp(0.0, max_y);
-                }
-            }
+
+            self.scene_rect = Some(scene_rect);
         }
     }
 
