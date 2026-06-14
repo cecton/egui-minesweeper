@@ -123,7 +123,7 @@ fn run() {
                             if ui
                                 .add_enabled(
                                     playing && has_selection && on_hidden,
-                                    egui::Button::new("👁").min_size(egui::vec2(64.0, 64.0)),
+                                    egui::Button::new(egui::RichText::new("👁").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
                                 )
                                 .clicked()
                             {
@@ -137,7 +137,7 @@ fn run() {
                             if ui
                                 .add_enabled(
                                     playing && has_selection,
-                                    egui::Button::new("🚩").min_size(egui::vec2(64.0, 64.0)),
+                                    egui::Button::new(egui::RichText::new("🚩").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
                                 )
                                 .clicked()
                             {
@@ -156,7 +156,7 @@ fn run() {
                                 if ui
                                     .add_enabled(
                                         playing && has_selection,
-                                        egui::Button::new("❓").min_size(egui::vec2(64.0, 64.0)),
+                                        egui::Button::new(egui::RichText::new("❓").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
                                     )
                                     .clicked()
                                 {
@@ -212,11 +212,11 @@ fn run() {
 
         fn show_hamburger_menu(&mut self, ui: &mut egui::Ui) {
             egui::containers::menu::MenuButton::from_button(
-                egui::Button::new("☰").min_size(egui::vec2(64.0, 64.0)),
+                egui::Button::new(egui::RichText::new("☰").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
             )
             .ui(ui, |ui| {
                 ui.spacing_mut().interact_size.y = 36.0;
-                if ui.button("🔄 New Game").clicked() {
+                if ui.button(egui::RichText::new("🔄 New Game").size(24.0)).clicked() {
                     self.game.reset();
                     self.selected_cell = None;
                     self.scene_rect = None;
@@ -228,12 +228,12 @@ fn run() {
                 ui.separator();
                 ui.label("Theme");
                 let mut tp = ui.options(|o| o.theme_preference);
-                ui.selectable_value(&mut tp, egui::ThemePreference::System, "💻 System");
-                ui.selectable_value(&mut tp, egui::ThemePreference::Light, "☀ Light");
-                ui.selectable_value(&mut tp, egui::ThemePreference::Dark, "🌙 Dark");
+                ui.selectable_value(&mut tp, egui::ThemePreference::System, egui::RichText::new("💻 System").size(24.0));
+                ui.selectable_value(&mut tp, egui::ThemePreference::Light, egui::RichText::new("☀ Light").size(24.0));
+                ui.selectable_value(&mut tp, egui::ThemePreference::Dark, egui::RichText::new("🌙 Dark").size(24.0));
                 ui.ctx().set_theme(tp);
                 ui.separator();
-                ui.toggle_value(&mut self.question_marks, "❓ Question marks");
+                ui.toggle_value(&mut self.question_marks, egui::RichText::new("❓ Question marks").size(24.0));
             });
         }
 
