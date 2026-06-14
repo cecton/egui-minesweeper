@@ -115,12 +115,21 @@ fn run() {
                     let center = egui::Layout::top_down(egui::Align::Center)
                         .with_cross_align(egui::Align::Center);
 
-                    ui.columns(4, |columns| {
+                    ui.columns(5, |columns| {
                         columns[0].with_layout(center, |ui| {
                             self.show_hamburger_menu(ui);
                         });
 
                         columns[1].with_layout(center, |ui| {
+                            let flags = self.game.flags_placed();
+                            let remaining = (self.game.mines as isize) - (flags as isize);
+                            let space = (ui.available_height() - 48.0).max(0.0) / 2.0;
+                            ui.add_space(space);
+                            ui.label(egui::RichText::new(format!("🚩 {flags}")).size(20.0));
+                            ui.label(egui::RichText::new(format!("💣 {remaining}")).size(20.0));
+                        });
+
+                        columns[2].with_layout(center, |ui| {
                             if ui
                                 .add_enabled(
                                     playing && has_selection && on_hidden,
@@ -134,7 +143,7 @@ fn run() {
                             }
                         });
 
-                        columns[2].with_layout(center, |ui| {
+                        columns[3].with_layout(center, |ui| {
                             if ui
                                 .add_enabled(
                                     playing && has_selection,
@@ -152,7 +161,7 @@ fn run() {
                             }
                         });
 
-                        columns[3].with_layout(center, |ui| {
+                        columns[4].with_layout(center, |ui| {
                             if self.question_marks {
                                 if ui
                                     .add_enabled(
@@ -251,22 +260,7 @@ fn run() {
 
         fn show_top_bar(&mut self, ui: &mut egui::Ui, is_mobile: bool) {
             if is_mobile {
-                egui::Panel::top("mobile_topbar")
-                    .resizable(false)
-                    .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
-                    .show_inside(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            self.show_result_label(ui);
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    let flags = self.game.flags_placed();
-                                    let remaining = (self.game.mines as isize) - (flags as isize);
-                                    ui.label(format!("🚩 {flags}  💣 {remaining}"));
-                                },
-                            );
-                        });
-                    });
+                // Top bar hidden on mobile; counters shown in action bar instead
             } else {
                 egui::Panel::top("top_bar")
                     .frame(egui::Frame::new().inner_margin(4.0))
