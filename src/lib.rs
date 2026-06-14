@@ -477,9 +477,7 @@ impl Widget for MinesweeperWidget<'_> {
         let origin = response.rect.min;
 
         // ── Input handling ────────────────────────────────────────────────────
-        if (response.clicked() || response.secondary_clicked())
-            && self.game.status == GameStatus::Playing
-        {
+        if response.clicked() || response.secondary_clicked() {
             if let Some(pos) = response.interact_pointer_pos() {
                 let local = pos - origin;
                 if local.x >= 0.0
@@ -505,7 +503,7 @@ impl Widget for MinesweeperWidget<'_> {
                                 }
                             }
                             InteractionMode::SelectOnly => {
-                                if response.clicked() {
+                                if self.game.status == GameStatus::Playing && response.clicked() {
                                     if let Some(sel) = selected_cell.as_deref_mut() {
                                         *sel = Some((cx, cy));
                                     }

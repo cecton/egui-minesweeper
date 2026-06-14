@@ -43,6 +43,7 @@ fn run() {
         question_marks: bool,
         selected_cell: Option<(usize, usize)>,
         scene_rect: Option<egui::Rect>,
+        prev_status: GameStatus,
     }
 
     impl Default for MinesweeperApp {
@@ -53,6 +54,7 @@ fn run() {
                 question_marks: true,
                 selected_cell: None,
                 scene_rect: None,
+                prev_status: GameStatus::Playing,
             }
         }
     }
@@ -63,13 +65,16 @@ fn run() {
             ui.painter()
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
-            self.show_top_bar(ui);
+            let is_mobile = Self::is_mobile(ui);
+            self.show_top_bar(ui, is_mobile);
 
-            if Self::is_mobile(ui) {
+            if is_mobile {
                 self.mobile_ui(ui);
             } else {
                 self.desktop_ui(ui);
             }
+
+            self.prev_status = self.game.status;
         }
     }
 
@@ -186,11 +191,15 @@ fn run() {
         fn show_result_label(&mut self, ui: &mut egui::Ui) {
             match self.game.status {
                 GameStatus::Won => {
-                    self.selected_cell = None;
+                    if self.prev_status != GameStatus::Won {
+                        self.selected_cell = None;
+                    }
                     ui.colored_label(egui::Color32::GREEN, "You won!");
                 }
                 GameStatus::Lost => {
-                    self.selected_cell = None;
+                    if self.prev_status != GameStatus::Lost {
+                        self.selected_cell = None;
+                    }
                     ui.colored_label(egui::Color32::RED, "Boom!");
                 }
                 GameStatus::Playing => {}
@@ -224,8 +233,8 @@ fn run() {
             });
         }
 
-        fn show_top_bar(&mut self, ui: &mut egui::Ui) {
-            if Self::is_mobile(ui) {
+        fn show_top_bar(&mut self, ui: &mut egui::Ui, is_mobile: bool) {
+            if is_mobile {
                 egui::Panel::top("mobile_topbar")
                     .resizable(false)
                     .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
