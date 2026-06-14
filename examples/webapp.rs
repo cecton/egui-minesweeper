@@ -137,7 +137,8 @@ fn run() {
                             if ui
                                 .add_enabled(
                                     playing && has_selection && on_hidden,
-                                    egui::Button::new(egui::RichText::new("👁").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
+                                    egui::Button::new(egui::RichText::new("👁").size(36.0))
+                                        .min_size(egui::vec2(64.0, 64.0)),
                                 )
                                 .clicked()
                             {
@@ -151,7 +152,8 @@ fn run() {
                             if ui
                                 .add_enabled(
                                     playing && has_selection,
-                                    egui::Button::new(egui::RichText::new("🚩").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
+                                    egui::Button::new(egui::RichText::new("🚩").size(36.0))
+                                        .min_size(egui::vec2(64.0, 64.0)),
                                 )
                                 .clicked()
                             {
@@ -170,7 +172,8 @@ fn run() {
                                 if ui
                                     .add_enabled(
                                         playing && has_selection,
-                                        egui::Button::new(egui::RichText::new("❓").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
+                                        egui::Button::new(egui::RichText::new("❓").size(36.0))
+                                            .min_size(egui::vec2(64.0, 64.0)),
                                     )
                                     .clicked()
                                 {
@@ -226,7 +229,10 @@ fn run() {
 
         fn show_hamburger_menu(&mut self, ui: &mut egui::Ui) {
             if ui
-                .add(egui::Button::new(egui::RichText::new("☰").size(36.0)).min_size(egui::vec2(64.0, 64.0)))
+                .add(
+                    egui::Button::new(egui::RichText::new("☰").size(36.0))
+                        .min_size(egui::vec2(64.0, 64.0)),
+                )
                 .clicked()
             {
                 self.show_menu = true;
@@ -246,7 +252,10 @@ fn run() {
             let menu_font_size = Self::MENU_FONT_SIZE;
             let response = egui::Modal::new(egui::Id::new("menu_modal"))
                 .area(area)
-                .frame(egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::symmetric(16, 16)))
+                .frame(
+                    egui::Frame::popup(&ctx.global_style())
+                        .inner_margin(egui::Margin::symmetric(16, 16)),
+                )
                 .backdrop_color(egui::Color32::from_black_alpha(128))
                 .show(ctx, |ui| {
                     ui.set_min_width(vp_width - 32.0);
@@ -254,7 +263,10 @@ fn run() {
                     {
                         let prev = ui.visuals().button_frame;
                         ui.visuals_mut().button_frame = false;
-                        if ui.button(egui::RichText::new("🔄 New Game").size(menu_font_size)).clicked() {
+                        if ui
+                            .button(egui::RichText::new("🔄 New Game").size(menu_font_size))
+                            .clicked()
+                        {
                             self.game.reset();
                             self.selected_cell = None;
                             self.scene_rect = None;
@@ -266,7 +278,10 @@ fn run() {
                     ui.label(egui::RichText::new("Difficulty").size(menu_font_size));
                     for &preset in Preset::ALL {
                         if ui
-                            .selectable_label(self.selected_preset == preset, egui::RichText::new(preset.label()).size(menu_font_size))
+                            .selectable_label(
+                                self.selected_preset == preset,
+                                egui::RichText::new(preset.label()).size(menu_font_size),
+                            )
                             .clicked()
                         {
                             self.selected_preset = preset;
@@ -280,9 +295,21 @@ fn run() {
                     ui.separator();
                     ui.label(egui::RichText::new("Theme").size(menu_font_size));
                     let mut tp = ui.options(|o| o.theme_preference);
-                    ui.selectable_value(&mut tp, egui::ThemePreference::System, egui::RichText::new("💻 System").size(menu_font_size));
-                    ui.selectable_value(&mut tp, egui::ThemePreference::Light, egui::RichText::new("☀ Light").size(menu_font_size));
-                    ui.selectable_value(&mut tp, egui::ThemePreference::Dark, egui::RichText::new("🌙 Dark").size(menu_font_size));
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::System,
+                        egui::RichText::new("💻 System").size(menu_font_size),
+                    );
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::Light,
+                        egui::RichText::new("☀ Light").size(menu_font_size),
+                    );
+                    ui.selectable_value(
+                        &mut tp,
+                        egui::ThemePreference::Dark,
+                        egui::RichText::new("🌙 Dark").size(menu_font_size),
+                    );
                     ui.ctx().set_theme(tp);
                 });
 
