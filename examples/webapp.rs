@@ -63,6 +63,8 @@ fn run() {
             ui.painter()
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
+            self.show_top_bar(ui);
+
             if Self::is_mobile(ui) {
                 self.mobile_ui(ui);
             } else {
@@ -163,48 +165,116 @@ fn run() {
                 });
         }
 
-        fn desktop_ui(&mut self, ui: &mut egui::Ui) {
-            let flags = self.game.flags_placed();
-            let remaining = (self.game.mines as isize) - (flags as isize);
+        fn show_difficulty_select(&mut self, ui: &mut egui::Ui, close_on_select: bool) {
+            for &preset in Preset::ALL {
+                if ui
+                    .selectable_label(self.selected_preset == preset, preset.label())
+                    .clicked()
+                {
+                    self.selected_preset = preset;
+                    let (w, h, m) = preset.dims();
+                    self.game = MinesweeperGame::new(w, h, m);
+                    self.selected_cell = None;
+                    self.scene_rect = None;
+                    if close_on_select {
+                        ui.close();
+                    }
+                }
+            }
+        }
 
-            egui::Panel::top("top_bar")
-                .frame(egui::Frame::new().inner_margin(4.0))
-                .show_inside(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.visuals_mut().button_frame = false;
-                        ui.add_space(8.0);
-                        egui::widgets::global_theme_preference_switch(ui);
-                        ui.toggle_value(&mut self.question_marks, "❓");
-                        ui.separator();
-                        for &preset in Preset::ALL {
-                            if ui
-                                .selectable_label(self.selected_preset == preset, preset.label())
-                                .clicked()
-                            {
-                                self.selected_preset = preset;
-                                let (w, h, m) = preset.dims();
-                                self.game = MinesweeperGame::new(w, h, m);
-                            }
-                        }
-                        ui.separator();
-                        ui.label(format!("🚩 {flags}  💣 {remaining}"));
-                        match self.game.status {
-                            GameStatus::Won => {
-                                ui.colored_label(egui::Color32::GREEN, "You won!");
-                            }
-                            GameStatus::Lost => {
-                                ui.colored_label(egui::Color32::RED, "Boom!");
-                            }
-                            GameStatus::Playing => {}
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("New Game").clicked() {
-                                self.game.reset();
-                            }
+        fn show_result_label(&mut self, ui: &mut egui::Ui) {
+            match self.game.status {
+                GameStatus::Won => {
+                    self.selected_cell = None;
+                    ui.colored_label(egui::Color32::GREEN, "You won!");
+                }
+                GameStatus::Lost => {
+                    self.selected_cell = None;
+                    ui.colored_label(egui::Color32::RED, "Boom!");
+                }
+                GameStatus::Playing => {}
+            }
+        }
+
+        fn show_hamburger_menu(&mut self, ui: &mut egui::Ui) {
+            egui::containers::menu::MenuButton::from_button(
+                egui::Button::new("☰").min_size(egui::vec2(64.0, 64.0)),
+            )
+            .ui(ui, |ui| {
+                ui.spacing_mut().interact_size.y = 36.0;
+                if ui.button("🔄 New Game").clicked() {
+                    self.game.reset();
+                    self.selected_cell = None;
+                    self.scene_rect = None;
+                    ui.close();
+                }
+                ui.separator();
+                ui.label("Difficulty");
+                self.show_difficulty_select(ui, true);
+                ui.separator();
+                ui.label("Theme");
+                let mut tp = ui.options(|o| o.theme_preference);
+                ui.selectable_value(&mut tp, egui::ThemePreference::System, "💻 System");
+                ui.selectable_value(&mut tp, egui::ThemePreference::Light, "☀ Light");
+                ui.selectable_value(&mut tp, egui::ThemePreference::Dark, "🌙 Dark");
+                ui.ctx().set_theme(tp);
+                ui.separator();
+                ui.toggle_value(&mut self.question_marks, "❓ Question marks");
+            });
+        }
+
+        fn show_top_bar(&mut self, ui: &mut egui::Ui) {
+            if Self::is_mobile(ui) {
+                egui::Panel::top("mobile_topbar")
+                    .resizable(false)
+                    .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
+                    .show_inside(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            self.show_hamburger_menu(ui);
+                            self.show_result_label(ui);
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let flags = self.game.flags_placed();
+                                    let remaining = (self.game.mines as isize) - (flags as isize);
+                                    ui.label(format!("🚩 {flags}  💣 {remaining}"));
+                                },
+                            );
                         });
                     });
-                });
+            } else {
+                egui::Panel::top("top_bar")
+                    .frame(egui::Frame::new().inner_margin(4.0))
+                    .show_inside(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.visuals_mut().button_frame = false;
+                            ui.add_space(8.0);
+                            egui::widgets::global_theme_preference_switch(ui);
+                            ui.toggle_value(&mut self.question_marks, "❓");
+                            ui.separator();
+                            self.show_difficulty_select(ui, false);
+                            ui.separator();
+                            let flags = self.game.flags_placed();
+                            let remaining = (self.game.mines as isize) - (flags as isize);
+                            ui.label(format!("🚩 {flags}  💣 {remaining}"));
+                            self.show_result_label(ui);
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("New Game").clicked() {
+                                        self.game.reset();
+                                        self.selected_cell = None;
+                                        self.scene_rect = None;
+                                    }
+                                },
+                            );
+                        });
+                    });
+            }
+        }
 
+        fn desktop_ui(&mut self, ui: &mut egui::Ui) {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                 ui.add(MinesweeperWidget::new(&mut self.game).question_marks(self.question_marks));
             });
@@ -212,73 +282,6 @@ fn run() {
 
         fn mobile_ui(&mut self, ui: &mut egui::Ui) {
             ui.spacing_mut().interact_size.y = 64.0;
-
-            egui::Panel::top("mobile_topbar")
-                .resizable(false)
-                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        egui::containers::menu::MenuButton::from_button(
-                            egui::Button::new("☰").min_size(egui::vec2(64.0, 64.0)),
-                        )
-                        .ui(ui, |ui| {
-                            ui.spacing_mut().interact_size.y = 36.0;
-                            if ui.button("🔄 New Game").clicked() {
-                                self.game.reset();
-                                self.selected_cell = None;
-                                self.scene_rect = None;
-                                ui.close();
-                            }
-                            ui.separator();
-                            ui.label("Difficulty");
-                            for &preset in Preset::ALL {
-                                if ui
-                                    .selectable_label(
-                                        self.selected_preset == preset,
-                                        preset.label(),
-                                    )
-                                    .clicked()
-                                {
-                                    self.selected_preset = preset;
-                                    let (w, h, m) = preset.dims();
-                                    self.game = MinesweeperGame::new(w, h, m);
-                                    self.selected_cell = None;
-                                    self.scene_rect = None;
-                                    ui.close();
-                                }
-                            }
-                            ui.separator();
-                            ui.label("Theme");
-                            let mut tp = ui.options(|o| o.theme_preference);
-                            ui.selectable_value(
-                                &mut tp,
-                                egui::ThemePreference::System,
-                                "💻 System",
-                            );
-                            ui.selectable_value(&mut tp, egui::ThemePreference::Light, "☀ Light");
-                            ui.selectable_value(&mut tp, egui::ThemePreference::Dark, "🌙 Dark");
-                            ui.ctx().set_theme(tp);
-                            ui.separator();
-                            ui.toggle_value(&mut self.question_marks, "❓ Question marks");
-                        });
-
-                        match self.game.status {
-                            GameStatus::Won => {
-                                ui.colored_label(egui::Color32::GREEN, "You won!");
-                            }
-                            GameStatus::Lost => {
-                                ui.colored_label(egui::Color32::RED, "Boom!");
-                            }
-                            GameStatus::Playing => {}
-                        }
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let flags = self.game.flags_placed();
-                            let remaining = (self.game.mines as isize) - (flags as isize);
-                            ui.label(format!("🚩 {flags}  💣 {remaining}"));
-                        });
-                    });
-                });
 
             self.show_action_bar(ui);
 
