@@ -52,6 +52,16 @@ pub enum GameStatus {
     Lost,
 }
 
+/// Interaction behavior for the widget.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum InteractionMode {
+    /// Desktop/default behavior: left click reveals, right click cycles flag/mark.
+    #[default]
+    Direct,
+    /// Mobile friendly behavior: primary tap only selects a cell.
+    SelectOnly,
+}
+
 // ─── Game logic ────────────────────────────────────────────────────────────────
 
 /// The Minesweeper game state.
@@ -235,6 +245,51 @@ impl MinesweeperGame {
             CellState::Revealed => {}
         }
     }
+
+    /// Set a cell directly to `Flagged` without cycling through the normal
+    /// [Hidden → Flagged → Marked → Hidden](Self::cycle_flag) sequence.
+    pub fn flag(&mut self, x: usize, y: usize) {
+        if self.status != GameStatus::Playing {
+            return;
+        }
+
+        let idx = self.idx(x, y);
+        if self.cells[idx].state == CellState::Revealed {
+            return;
+        }
+
+        self.cells[idx].state = CellState::Flagged;
+    }
+
+    /// Set a cell directly to `Marked` without cycling through the normal
+    /// [Hidden → Flagged → Marked → Hidden](Self::cycle_flag) sequence.
+    pub fn mark(&mut self, x: usize, y: usize) {
+        if self.status != GameStatus::Playing {
+            return;
+        }
+
+        let idx = self.idx(x, y);
+        if self.cells[idx].state == CellState::Revealed {
+            return;
+        }
+
+        self.cells[idx].state = CellState::Marked;
+    }
+
+    /// Clear any marker on a cell, returning it to `Hidden`.
+    /// This removes both flags and question marks.
+    pub fn clear_marker(&mut self, x: usize, y: usize) {
+        if self.status != GameStatus::Playing {
+            return;
+        }
+
+        let idx = self.idx(x, y);
+        if self.cells[idx].state == CellState::Revealed {
+            return;
+        }
+
+        self.cells[idx].state = CellState::Hidden;
+    }
 }
 
 // ─── egui widget ───────────────────────────────────────────────────────────────
@@ -250,6 +305,8 @@ impl MinesweeperGame {
 pub struct MinesweeperWidget<'a> {
     game: &'a mut MinesweeperGame,
     cell_size: Option<f32>,
+    interaction_mode: InteractionMode,
+    selected_cell: Option<&'a mut Option<(usize, usize)>>,
     question_marks: bool,
 }
 
@@ -258,6 +315,8 @@ impl<'a> MinesweeperWidget<'a> {
         Self {
             game,
             cell_size: None,
+            interaction_mode: InteractionMode::Direct,
+            selected_cell: None,
             question_marks: false,
         }
     }
@@ -267,6 +326,18 @@ impl<'a> MinesweeperWidget<'a> {
     /// available space of the parent container.
     pub fn cell_size(mut self, size: f32) -> Self {
         self.cell_size = Some(size);
+        self
+    }
+
+    /// Set interaction behavior.
+    pub fn interaction_mode(mut self, mode: InteractionMode) -> Self {
+        self.interaction_mode = mode;
+        self
+    }
+
+    /// Bind selected-cell state for select-only interactions/highlighting.
+    pub fn selected_cell(mut self, selected: &'a mut Option<(usize, usize)>) -> Self {
+        self.selected_cell = Some(selected);
         self
     }
 
@@ -399,28 +470,44 @@ impl Widget for MinesweeperWidget<'_> {
             by_width.min(by_height).max(1.0)
         });
 
-        let total = Vec2::new(self.game.width as f32, self.game.height as f32) * cell_size;
+        let mut selected_cell = self.selected_cell;
 
-        let (response, painter) = ui.allocate_painter(total, Sense::click());
+        let board_size = Vec2::new(self.game.width as f32, self.game.height as f32) * cell_size;
+        let (response, painter) = ui.allocate_painter(board_size, Sense::click());
         let origin = response.rect.min;
 
         // ── Input handling ────────────────────────────────────────────────────
-        if (response.clicked() || response.secondary_clicked())
-            && self.game.status == GameStatus::Playing
-        {
+        if response.clicked() || response.secondary_clicked() {
             if let Some(pos) = response.interact_pointer_pos() {
                 let local = pos - origin;
-                let cx = (local.x / cell_size).floor() as usize;
-                let cy = (local.y / cell_size).floor() as usize;
-                if cx < self.game.width && cy < self.game.height {
-                    if response.clicked() {
-                        self.game.reveal(cx, cy);
-                    } else {
-                        self.game.cycle_flag(cx, cy);
-                        if !self.question_marks {
-                            let idx = cy * self.game.width + cx;
-                            if self.game.cells[idx].state == CellState::Marked {
-                                self.game.cycle_flag(cx, cy);
+                if local.x >= 0.0
+                    && local.y >= 0.0
+                    && local.x < board_size.x
+                    && local.y < board_size.y
+                {
+                    let cx = (local.x / cell_size).floor() as usize;
+                    let cy = (local.y / cell_size).floor() as usize;
+                    if cx < self.game.width && cy < self.game.height {
+                        match self.interaction_mode {
+                            InteractionMode::Direct => {
+                                if response.clicked() {
+                                    self.game.reveal(cx, cy);
+                                } else {
+                                    self.game.cycle_flag(cx, cy);
+                                    if !self.question_marks {
+                                        let idx = cy * self.game.width + cx;
+                                        if self.game.cells[idx].state == CellState::Marked {
+                                            self.game.cycle_flag(cx, cy);
+                                        }
+                                    }
+                                }
+                            }
+                            InteractionMode::SelectOnly => {
+                                if self.game.status == GameStatus::Playing && response.clicked() {
+                                    if let Some(sel) = selected_cell.as_deref_mut() {
+                                        *sel = Some((cx, cy));
+                                    }
+                                }
                             }
                         }
                     }
@@ -437,6 +524,25 @@ impl Widget for MinesweeperWidget<'_> {
                 );
                 let cell = &self.game.cells[y * self.game.width + x];
                 draw_cell(&painter, cell_rect, cell, cell_size, ui.visuals());
+            }
+        }
+
+        if let Some((sx, sy)) = selected_cell.as_deref().copied().flatten() {
+            if sx < self.game.width
+                && sy < self.game.height
+                && self.game.cells[sy * self.game.width + sx].state != CellState::Revealed
+            {
+                let sel_rect = Rect::from_min_size(
+                    origin + Vec2::new(sx as f32, sy as f32) * cell_size,
+                    Vec2::splat(cell_size),
+                )
+                .shrink(1.0);
+                painter.rect_stroke(
+                    sel_rect,
+                    CornerRadius::same(3),
+                    Stroke::new(2.0, Color32::YELLOW),
+                    StrokeKind::Inside,
+                );
             }
         }
 
