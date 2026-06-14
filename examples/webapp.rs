@@ -22,9 +22,9 @@ fn run() {
 
         fn label(self) -> &'static str {
             match self {
-                Self::Beginner => "Beginner (9×9, 10 mines)",
-                Self::Intermediate => "Intermediate (16×16, 40 mines)",
-                Self::Expert => "Expert (30×16, 99 mines)",
+                Self::Beginner => "\u{FE82E} Beginner (9×9, 10 mines)",
+                Self::Intermediate => "\u{FE82F} Intermediate (16×16, 40 mines)",
+                Self::Expert => "\u{FE830} Expert (30×16, 99 mines)",
             }
         }
 
@@ -80,6 +80,7 @@ fn run() {
 
     impl MinesweeperApp {
         const MOBILE_CELL_SIZE: f32 = 34.0;
+        const MENU_FONT_SIZE: f32 = 24.0;
 
         fn is_mobile(ui: &egui::Ui) -> bool {
             let content = ui.ctx().content_rect();
@@ -177,7 +178,7 @@ fn run() {
         fn show_difficulty_select(&mut self, ui: &mut egui::Ui, close_on_select: bool) {
             for &preset in Preset::ALL {
                 if ui
-                    .selectable_label(self.selected_preset == preset, preset.label())
+                    .selectable_label(self.selected_preset == preset, egui::RichText::new(preset.label()).size(Self::MENU_FONT_SIZE))
                     .clicked()
                 {
                     self.selected_preset = preset;
@@ -216,24 +217,23 @@ fn run() {
             )
             .ui(ui, |ui| {
                 ui.spacing_mut().interact_size.y = 36.0;
-                if ui.button(egui::RichText::new("🔄 New Game").size(24.0)).clicked() {
+                if ui.button(egui::RichText::new("🔄 New Game").size(Self::MENU_FONT_SIZE)).clicked() {
                     self.game.reset();
                     self.selected_cell = None;
                     self.scene_rect = None;
                     ui.close();
                 }
                 ui.separator();
-                ui.label("Difficulty");
+                ui.label(egui::RichText::new("Difficulty").size(Self::MENU_FONT_SIZE));
                 self.show_difficulty_select(ui, true);
                 ui.separator();
-                ui.label("Theme");
+                ui.label(egui::RichText::new("Theme").size(Self::MENU_FONT_SIZE));
                 let mut tp = ui.options(|o| o.theme_preference);
-                ui.selectable_value(&mut tp, egui::ThemePreference::System, egui::RichText::new("💻 System").size(24.0));
-                ui.selectable_value(&mut tp, egui::ThemePreference::Light, egui::RichText::new("☀ Light").size(24.0));
-                ui.selectable_value(&mut tp, egui::ThemePreference::Dark, egui::RichText::new("🌙 Dark").size(24.0));
+                ui.selectable_value(&mut tp, egui::ThemePreference::System, egui::RichText::new("💻 System").size(Self::MENU_FONT_SIZE));
+                ui.selectable_value(&mut tp, egui::ThemePreference::Light, egui::RichText::new("☀ Light").size(Self::MENU_FONT_SIZE));
+                ui.selectable_value(&mut tp, egui::ThemePreference::Dark, egui::RichText::new("🌙 Dark").size(Self::MENU_FONT_SIZE));
                 ui.ctx().set_theme(tp);
-                ui.separator();
-                ui.toggle_value(&mut self.question_marks, egui::RichText::new("❓ Question marks").size(24.0));
+
             });
         }
 
