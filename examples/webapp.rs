@@ -114,8 +114,12 @@ fn run() {
                     let center = egui::Layout::top_down(egui::Align::Center)
                         .with_cross_align(egui::Align::Center);
 
-                    ui.columns(3, |columns| {
+                    ui.columns(4, |columns| {
                         columns[0].with_layout(center, |ui| {
+                            self.show_hamburger_menu(ui);
+                        });
+
+                        columns[1].with_layout(center, |ui| {
                             if ui
                                 .add_enabled(
                                     playing && has_selection && on_hidden,
@@ -129,7 +133,7 @@ fn run() {
                             }
                         });
 
-                        columns[1].with_layout(center, |ui| {
+                        columns[2].with_layout(center, |ui| {
                             if ui
                                 .add_enabled(
                                     playing && has_selection,
@@ -147,7 +151,7 @@ fn run() {
                             }
                         });
 
-                        columns[2].with_layout(center, |ui| {
+                        columns[3].with_layout(center, |ui| {
                             if self.question_marks {
                                 if ui
                                     .add_enabled(
@@ -240,7 +244,6 @@ fn run() {
                     .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
                     .show_inside(ui, |ui| {
                         ui.horizontal(|ui| {
-                            self.show_hamburger_menu(ui);
                             self.show_result_label(ui);
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
