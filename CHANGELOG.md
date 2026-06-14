@@ -7,6 +7,22 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-14
+
+### Added
+
+- PWA support: service worker with cache management, web manifest, and icons.
+- Mobile-responsive layout with `InteractionMode::SelectOnly` for touch interaction.
+- `MinesweeperGame::flag()`, `mark()`, `clear_marker()` methods for direct cell state control.
+- Bottom action bar on mobile with flag, reveal, and mark buttons.
+- Hamburger menu on mobile for restart, new game, and dark mode toggle.
+- Selection highlight on hovered/selected cells.
+
+### Changed
+
+- **BREAKING** `MinesweeperWidget` now accepts `interaction_mode` and `selected_cell` builders for controlling interaction style.
+- Web UI: redesigned top bar with difficulty presets, menu refinement, and consistent icon sizing.
+
 ## [0.1.2] - 2026-06-11
 
 ### Changed
@@ -47,7 +63,8 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-minesweeper/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/cecton/egui-minesweeper/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.3
 [0.1.2]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.2
 [0.1.1]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.1
 [0.1.0]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.0
