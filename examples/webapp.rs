@@ -178,7 +178,7 @@ fn run() {
         fn show_difficulty_select(&mut self, ui: &mut egui::Ui, close_on_select: bool) {
             for &preset in Preset::ALL {
                 if ui
-                    .selectable_label(self.selected_preset == preset, egui::RichText::new(preset.label()).size(Self::MENU_FONT_SIZE))
+                    .selectable_label(self.selected_preset == preset, preset.label())
                     .clicked()
                 {
                     self.selected_preset = preset;
@@ -225,7 +225,19 @@ fn run() {
                 }
                 ui.separator();
                 ui.label(egui::RichText::new("Difficulty").size(Self::MENU_FONT_SIZE));
-                self.show_difficulty_select(ui, true);
+                for &preset in Preset::ALL {
+                    if ui
+                        .selectable_label(self.selected_preset == preset, egui::RichText::new(preset.label()).size(Self::MENU_FONT_SIZE))
+                        .clicked()
+                    {
+                        self.selected_preset = preset;
+                        let (w, h, m) = preset.dims();
+                        self.game = MinesweeperGame::new(w, h, m);
+                        self.selected_cell = None;
+                        self.scene_rect = None;
+                        ui.close();
+                    }
+                }
                 ui.separator();
                 ui.label(egui::RichText::new("Theme").size(Self::MENU_FONT_SIZE));
                 let mut tp = ui.options(|o| o.theme_preference);
