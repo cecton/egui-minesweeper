@@ -44,6 +44,8 @@ fn run() {
         selected_cell: Option<(usize, usize)>,
         scene_rect: Option<egui::Rect>,
         prev_status: GameStatus,
+        show_menu_drawer: bool,
+        menu_suppress_close: bool,
     }
 
     impl Default for MinesweeperApp {
@@ -55,6 +57,8 @@ fn run() {
                 selected_cell: None,
                 scene_rect: None,
                 prev_status: GameStatus::Playing,
+                show_menu_drawer: false,
+                menu_suppress_close: false,
             }
         }
     }
@@ -116,7 +120,17 @@ fn run() {
 
                     ui.columns(4, |columns| {
                         columns[0].with_layout(center, |ui| {
-                            self.show_hamburger_menu(ui);
+                            if ui
+                                .add(
+                                    egui::Button::new(egui::RichText::new("☰").size(36.0))
+                                        .min_size(egui::vec2(64.0, 64.0)),
+                                )
+                                .clicked()
+                            {
+                                let was_open = self.show_menu_drawer;
+                                self.show_menu_drawer = !self.show_menu_drawer;
+                                self.menu_suppress_close = !was_open;
+                            }
                         });
 
                         columns[1].with_layout(center, |ui| {
@@ -210,33 +224,6 @@ fn run() {
             }
         }
 
-        fn show_hamburger_menu(&mut self, ui: &mut egui::Ui) {
-            egui::containers::menu::MenuButton::from_button(
-                egui::Button::new(egui::RichText::new("☰").size(36.0)).min_size(egui::vec2(64.0, 64.0)),
-            )
-            .ui(ui, |ui| {
-                ui.spacing_mut().interact_size.y = 36.0;
-                if ui.button(egui::RichText::new("🔄 New Game").size(24.0)).clicked() {
-                    self.game.reset();
-                    self.selected_cell = None;
-                    self.scene_rect = None;
-                    ui.close();
-                }
-                ui.separator();
-                ui.label("Difficulty");
-                self.show_difficulty_select(ui, true);
-                ui.separator();
-                ui.label("Theme");
-                let mut tp = ui.options(|o| o.theme_preference);
-                ui.selectable_value(&mut tp, egui::ThemePreference::System, egui::RichText::new("💻 System").size(24.0));
-                ui.selectable_value(&mut tp, egui::ThemePreference::Light, egui::RichText::new("☀ Light").size(24.0));
-                ui.selectable_value(&mut tp, egui::ThemePreference::Dark, egui::RichText::new("🌙 Dark").size(24.0));
-                ui.ctx().set_theme(tp);
-                ui.separator();
-                ui.toggle_value(&mut self.question_marks, egui::RichText::new("❓ Question marks").size(24.0));
-            });
-        }
-
         fn show_top_bar(&mut self, ui: &mut egui::Ui, is_mobile: bool) {
             if is_mobile {
                 egui::Panel::top("mobile_topbar")
@@ -295,6 +282,49 @@ fn run() {
         fn mobile_ui(&mut self, ui: &mut egui::Ui) {
             ui.spacing_mut().interact_size.y = 64.0;
 
+            // Animated menu width (0 → 250 when open, 250 → 0 when closed)
+            let anim = ui
+                .ctx()
+                .animate_bool_responsive(egui::Id::new("menu_drawer_anim"), self.show_menu_drawer);
+            let panel_width = anim * 250.0;
+
+            // Side menu drawer (always rendered for smooth animation)
+            if panel_width > 0.0 {
+                egui::Panel::left("menu_drawer")
+                    .exact_size(panel_width)
+                    .resizable(false)
+                    .show_inside(ui, |ui| {
+                        ui.spacing_mut().interact_size.y = 36.0;
+                        if ui.button(egui::RichText::new("🔄 New Game").size(24.0)).clicked() {
+                            self.game.reset();
+                            self.selected_cell = None;
+                            self.scene_rect = None;
+                            self.show_menu_drawer = false;
+                        }
+                        ui.separator();
+                        ui.label("Difficulty");
+                        for &preset in Preset::ALL {
+                            if ui.selectable_label(self.selected_preset == preset, preset.label()).clicked() {
+                                self.selected_preset = preset;
+                                let (w, h, m) = preset.dims();
+                                self.game = MinesweeperGame::new(w, h, m);
+                                self.selected_cell = None;
+                                self.scene_rect = None;
+                                self.show_menu_drawer = false;
+                            }
+                        }
+                        ui.separator();
+                        ui.label("Theme");
+                        let mut tp = ui.options(|o| o.theme_preference);
+                        ui.selectable_value(&mut tp, egui::ThemePreference::System, egui::RichText::new("💻 System").size(24.0));
+                        ui.selectable_value(&mut tp, egui::ThemePreference::Light, egui::RichText::new("☀ Light").size(24.0));
+                        ui.selectable_value(&mut tp, egui::ThemePreference::Dark, egui::RichText::new("🌙 Dark").size(24.0));
+                        ui.ctx().set_theme(tp);
+                        ui.separator();
+                        ui.toggle_value(&mut self.question_marks, egui::RichText::new("❓ Question marks").size(24.0));
+                    });
+            }
+
             self.show_action_bar(ui);
 
             let board_size = egui::vec2(
@@ -319,6 +349,35 @@ fn run() {
                 });
 
             self.scene_rect = Some(scene_rect);
+
+            // Dimmed overlay that follows the animated panel width
+            if anim > 0.0 {
+                let content_rect = ui.ctx().content_rect();
+                let overlay_rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(panel_width, content_rect.top()),
+                    egui::vec2(
+                        (content_rect.width() - panel_width).max(0.0),
+                        content_rect.height(),
+                    ),
+                );
+                let painter = ui.ctx().layer_painter(egui::LayerId::new(
+                    egui::Order::Middle,
+                    egui::Id::new("menu_overlay"),
+                ));
+                painter.rect_filled(overlay_rect, 0.0, egui::Color32::from_black_alpha(100));
+            }
+
+            // Close menu when tapping outside the animated drawer
+            if self.show_menu_drawer && !self.menu_suppress_close {
+                if ui.input(|i| i.pointer.any_click()) {
+                    if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                        if pos.x > panel_width + 10.0 {
+                            self.show_menu_drawer = false;
+                        }
+                    }
+                }
+            }
+            self.menu_suppress_close = false;
         }
     }
 
