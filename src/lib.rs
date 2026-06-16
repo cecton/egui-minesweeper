@@ -308,6 +308,7 @@ pub struct MinesweeperWidget<'a> {
     interaction_mode: InteractionMode,
     selected_cell: Option<&'a mut Option<(usize, usize)>>,
     question_marks: bool,
+    show_labels: bool,
 }
 
 impl<'a> MinesweeperWidget<'a> {
@@ -318,6 +319,7 @@ impl<'a> MinesweeperWidget<'a> {
             interaction_mode: InteractionMode::Direct,
             selected_cell: None,
             question_marks: false,
+            show_labels: false,
         }
     }
 
@@ -347,6 +349,23 @@ impl<'a> MinesweeperWidget<'a> {
         self.question_marks = enabled;
         self
     }
+
+    /// When enabled, render numeric row and column labels along the left and top edges.
+    pub fn show_labels(mut self, enabled: bool) -> Self {
+        self.show_labels = enabled;
+        self
+    }
+}
+
+fn column_label(x: usize) -> String {
+    let mut n = x + 1;
+    let mut s = String::new();
+    while n > 0 {
+        let rem = (n - 1) % 26;
+        s.push((b'A' + rem as u8) as char);
+        n = (n - 1) / 26;
+    }
+    s.chars().rev().collect()
 }
 
 fn number_color(n: u8, dark_mode: bool) -> Color32 {
@@ -463,18 +482,21 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32, v
 
 impl Widget for MinesweeperWidget<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
+        let label_cells = if self.show_labels { 1.0 } else { 0.0 };
         let cell_size = self.cell_size.unwrap_or_else(|| {
             let available = ui.available_size();
-            let by_width = available.x / self.game.width as f32;
-            let by_height = available.y / self.game.height as f32;
+            let by_width = available.x / (self.game.width as f32 + label_cells);
+            let by_height = available.y / (self.game.height as f32 + label_cells);
             by_width.min(by_height).max(1.0)
         });
 
         let mut selected_cell = self.selected_cell;
 
         let board_size = Vec2::new(self.game.width as f32, self.game.height as f32) * cell_size;
-        let (response, painter) = ui.allocate_painter(board_size, Sense::click());
-        let origin = response.rect.min;
+        let label_margin = label_cells * cell_size;
+        let total_size = board_size + Vec2::splat(label_margin);
+        let (response, painter) = ui.allocate_painter(total_size, Sense::click());
+        let origin = response.rect.min + Vec2::splat(label_margin);
 
         // ── Input handling ────────────────────────────────────────────────────
         if response.clicked() || response.secondary_clicked() {
@@ -516,6 +538,37 @@ impl Widget for MinesweeperWidget<'_> {
         }
 
         // ── Painting ──────────────────────────────────────────────────────────
+        if self.show_labels {
+            let label_color = ui.visuals().widgets.noninteractive.fg_stroke.color;
+            let font = FontId::monospace(cell_size * 0.5);
+            for x in 0..self.game.width {
+                let rect = Rect::from_min_size(
+                    response.rect.min + Vec2::new(label_margin + x as f32 * cell_size, 0.0),
+                    Vec2::splat(cell_size),
+                );
+                painter.text(
+                    rect.center(),
+                    Align2::CENTER_CENTER,
+                    column_label(x),
+                    font.clone(),
+                    label_color,
+                );
+            }
+            for y in 0..self.game.height {
+                let rect = Rect::from_min_size(
+                    response.rect.min + Vec2::new(0.0, label_margin + y as f32 * cell_size),
+                    Vec2::splat(cell_size),
+                );
+                painter.text(
+                    rect.center(),
+                    Align2::CENTER_CENTER,
+                    (y + 1).to_string(),
+                    font.clone(),
+                    label_color,
+                );
+            }
+        }
+
         for y in 0..self.game.height {
             for x in 0..self.game.width {
                 let cell_rect = Rect::from_min_size(

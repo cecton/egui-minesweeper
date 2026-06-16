@@ -41,6 +41,7 @@ fn run() {
         game: MinesweeperGame,
         selected_preset: Preset,
         question_marks: bool,
+        show_labels: bool,
         selected_cell: Option<(usize, usize)>,
         scene_rect: Option<egui::Rect>,
         prev_status: GameStatus,
@@ -53,6 +54,7 @@ fn run() {
                 game: MinesweeperGame::new(9, 9, 10),
                 selected_preset: Preset::Beginner,
                 question_marks: true,
+                show_labels: false,
                 selected_cell: None,
                 scene_rect: None,
                 prev_status: GameStatus::Playing,
@@ -330,6 +332,7 @@ fn run() {
                             ui.add_space(8.0);
                             egui::widgets::global_theme_preference_switch(ui);
                             ui.toggle_value(&mut self.question_marks, "❓");
+                            ui.toggle_value(&mut self.show_labels, "123");
                             ui.separator();
                             self.show_difficulty_select(ui, false);
                             ui.separator();
@@ -354,7 +357,11 @@ fn run() {
 
         fn desktop_ui(&mut self, ui: &mut egui::Ui) {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                ui.add(MinesweeperWidget::new(&mut self.game).question_marks(self.question_marks));
+                ui.add(
+                    MinesweeperWidget::new(&mut self.game)
+                        .question_marks(self.question_marks)
+                        .show_labels(self.show_labels),
+                );
             });
         }
 
@@ -380,7 +387,8 @@ fn run() {
                             .cell_size(Self::MOBILE_CELL_SIZE)
                             .interaction_mode(InteractionMode::SelectOnly)
                             .selected_cell(&mut self.selected_cell)
-                            .question_marks(self.question_marks),
+                            .question_marks(self.question_marks)
+                            .show_labels(self.show_labels),
                     );
                 });
 
