@@ -7,6 +7,18 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-06-16
+
+### Added
+
+- Optional row and column labels for easier cell reference on the board.
+  - `MinesweeperWidget::show_labels()` builder method to enable labels.
+  - Spreadsheet-style column letters (A, B, ..., Z, AA, AB, ...) along the top edge.
+  - Numeric row labels (1, 2, 3, ...) along the left edge.
+  - The widget auto-sizes to accommodate the labels when enabled.
+  - Labels render in a monospace font at half cell size, respecting the active egui theme.
+  - Feature is opt-in and defaults to disabled for backward compatibility.
+
 ## [0.1.3] - 2026-06-14
 
 ### Added
@@ -63,7 +75,8 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-minesweeper/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/cecton/egui-minesweeper/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.4
 [0.1.3]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.3
 [0.1.2]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.2
 [0.1.1]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.1
