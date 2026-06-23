@@ -99,7 +99,10 @@ fn run() {
     #[derive(Clone, Copy)]
     enum ShareState {
         Idle,
-        Capture { restore_scene: egui::Rect, wait_frames: u8 },
+        Capture {
+            restore_scene: egui::Rect,
+            wait_frames: u8,
+        },
     }
 
     struct MinesweeperApp {
@@ -259,11 +262,7 @@ fn run() {
             }
 
             let cropped = image.region_by_pixels([min_x, min_y], [crop_w, crop_h]);
-            let rgba: Vec<u8> = cropped
-                .pixels
-                .iter()
-                .flat_map(|c| c.to_array())
-                .collect();
+            let rgba: Vec<u8> = cropped.pixels.iter().flat_map(|c| c.to_array()).collect();
 
             let img = image::RgbaImage::from_raw(crop_w as u32, crop_h as u32, rgba)?;
             let mut encoded = Vec::new();
@@ -363,16 +362,16 @@ fn run() {
 
                 let record = js_sys::Object::new();
                 let _ = js_sys::Reflect::set(&record, &JsValue::from_str("image/png"), &blob);
-                let item = match web_sys::ClipboardItem::new_with_record_from_str_to_blob_promise(
-                    &record,
-                ) {
-                    Ok(i) => i,
-                    Err(_) => {
-                        *share_result.lock().unwrap() =
-                            Some("Couldn't prepare clipboard item.".to_string());
-                        return;
-                    }
-                };
+                let item =
+                    match web_sys::ClipboardItem::new_with_record_from_str_to_blob_promise(&record)
+                    {
+                        Ok(i) => i,
+                        Err(_) => {
+                            *share_result.lock().unwrap() =
+                                Some("Couldn't prepare clipboard item.".to_string());
+                            return;
+                        }
+                    };
                 let items = js_sys::Array::new();
                 items.push(&item);
                 let items_js: JsValue = items.into();
@@ -756,8 +755,9 @@ fn run() {
                     .ctx()
                     .input(|i| i.viewport().native_pixels_per_point)
                     .unwrap_or(1.0);
-                self.capture_board_rect =
-                    Some(Self::board_rect_in_screen_pixels(outer_rect, board_size, dpr));
+                self.capture_board_rect = Some(Self::board_rect_in_screen_pixels(
+                    outer_rect, board_size, dpr,
+                ));
                 ui.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
                 if let ShareState::Capture { restore_scene, .. } = self.share_state {
                     self.scene_rect = Some(restore_scene);
