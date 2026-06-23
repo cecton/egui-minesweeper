@@ -2,6 +2,65 @@
 //   - wasm32: a #[wasm_bindgen(start)] that calls this function body
 //   - native: a main with `dist` / `start` sub-commands that build the wasm
 //             bundle and serve it via a local dev server
+#[allow(dead_code)]
+mod geometry {
+    /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
+    pub fn fit_to_rect_in_scene(
+        rect_in_global: egui::Rect,
+        rect_in_scene: egui::Rect,
+        zoom_range: egui::Rangef,
+    ) -> egui::emath::TSTransform {
+        let scale = rect_in_global.size() / rect_in_scene.size();
+        let scale = scale.min_elem();
+        let scale = zoom_range.clamp(scale);
+        let center_in_global = rect_in_global.center().to_vec2();
+        let center_scene = rect_in_scene.center().to_vec2();
+        egui::emath::TSTransform::from_translation(center_in_global - scale * center_scene)
+            * egui::emath::TSTransform::from_scaling(scale)
+    }
+
+    /// Computes the board's on-screen pixel rectangle when the scene is reset to show the full board.
+    pub fn board_rect_in_screen_pixels(
+        outer_rect: egui::Rect,
+        board_size: egui::Vec2,
+        pixels_per_point: f32,
+    ) -> egui::Rect {
+        let scene_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, board_size);
+        let zoom_range = egui::Rangef::new(0.0, f32::INFINITY);
+        let transform = fit_to_rect_in_scene(outer_rect, scene_rect, zoom_range);
+        let board_global = transform * scene_rect;
+        egui::Rect::from_min_max(
+            (board_global.min * pixels_per_point).round(),
+            (board_global.max * pixels_per_point).round(),
+        )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn fit_to_rect_in_scene_centers_board() {
+            let global = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0));
+            let scene = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(50.0, 50.0));
+            let transform =
+                fit_to_rect_in_scene(global, scene, egui::Rangef::new(0.0, f32::INFINITY));
+            let transformed = transform * scene;
+            assert!((transformed.center() - global.center()).length() < 0.001);
+            assert!((transformed.size() - egui::vec2(50.0, 50.0)).length() < 0.001);
+        }
+
+        #[test]
+        fn board_rect_in_screen_pixels_matches_scale() {
+            let outer = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0));
+            let board = egui::vec2(50.0, 50.0);
+            let rect = board_rect_in_screen_pixels(outer, board, 2.0);
+            assert_eq!(rect.min, egui::Pos2::new(50.0, 50.0));
+            assert_eq!(rect.max, egui::Pos2::new(150.0, 150.0));
+        }
+    }
+}
+
 #[xtask_wasm::run_example(assets_dir = "assets")]
 fn run() {
     use eframe::egui;
@@ -37,6 +96,12 @@ fn run() {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum ShareState {
+        Idle,
+        Capture { restore_scene: egui::Rect, wait_frames: u8 },
+    }
+
     struct MinesweeperApp {
         game: MinesweeperGame,
         selected_preset: Preset,
@@ -46,6 +111,10 @@ fn run() {
         scene_rect: Option<egui::Rect>,
         prev_status: GameStatus,
         show_menu: bool,
+        share_state: ShareState,
+        toast: Option<(String, f32)>,
+        capture_board_rect: Option<egui::Rect>,
+        share_result: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     }
 
     impl Default for MinesweeperApp {
@@ -59,6 +128,10 @@ fn run() {
                 scene_rect: None,
                 prev_status: GameStatus::Playing,
                 show_menu: false,
+                share_state: ShareState::Idle,
+                toast: None,
+                capture_board_rect: None,
+                share_result: std::sync::Arc::new(std::sync::Mutex::new(None)),
             }
         }
     }
@@ -80,6 +153,69 @@ fn run() {
 
             self.show_menu_modal(ui.ctx());
 
+            // Handle screenshot result and capture timeout.
+            let mut screenshot = None;
+            if matches!(self.share_state, ShareState::Capture { .. }) {
+                ui.input(|i| {
+                    for event in &i.raw.events {
+                        if let egui::Event::Screenshot { image, .. } = event {
+                            screenshot = Some(image.clone());
+                        }
+                    }
+                });
+            }
+
+            if let Some(image) = screenshot {
+                if let Some(rect) = self.capture_board_rect {
+                    if let Some(png) = Self::crop_and_encode_png(&image, rect) {
+                        let filename = format!(
+                            "minesweeper-{}x{}-{}.png",
+                            self.game.width, self.game.height, self.game.mines
+                        );
+                        let title = match self.game.status {
+                            GameStatus::Won => "Minesweeper win".to_string(),
+                            GameStatus::Lost => "Minesweeper loss".to_string(),
+                            GameStatus::Playing => "Minesweeper".to_string(),
+                        };
+                        Self::share_or_copy_png(png, filename, title, self.share_result.clone());
+                    } else {
+                        self.set_toast("Couldn't crop screenshot.");
+                    }
+                }
+                self.share_state = ShareState::Idle;
+                self.capture_board_rect = None;
+            } else if let ShareState::Capture {
+                restore_scene,
+                wait_frames,
+            } = self.share_state
+            {
+                if wait_frames == 0 {
+                    self.share_state = ShareState::Idle;
+                    self.capture_board_rect = None;
+                    self.set_toast("Screenshot failed.");
+                } else {
+                    self.share_state = ShareState::Capture {
+                        restore_scene,
+                        wait_frames: wait_frames - 1,
+                    };
+                }
+            }
+
+            // Apply async share/copy result.
+            let share_msg = self.share_result.lock().unwrap().take();
+            if let Some(msg) = share_msg {
+                self.set_toast(msg);
+            }
+
+            // Update toast timer.
+            if let Some((_msg, remaining)) = &mut self.toast {
+                let dt = ui.ctx().input(|i| i.stable_dt);
+                *remaining -= dt;
+                if *remaining <= 0.0 {
+                    self.toast = None;
+                }
+            }
+
             self.prev_status = self.game.status;
         }
     }
@@ -88,13 +224,174 @@ fn run() {
         const MOBILE_CELL_SIZE: f32 = 34.0;
         const MENU_FONT_SIZE: f32 = 24.0;
 
+        fn set_toast(&mut self, message: impl Into<String>) {
+            self.toast = Some((message.into(), 2.0));
+        }
+
+        /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
+        fn fit_to_rect_in_scene(
+            rect_in_global: egui::Rect,
+            rect_in_scene: egui::Rect,
+            zoom_range: egui::Rangef,
+        ) -> egui::emath::TSTransform {
+            geometry::fit_to_rect_in_scene(rect_in_global, rect_in_scene, zoom_range)
+        }
+
+        /// Computes the board's on-screen pixel rectangle when the scene is reset to show the full board.
+        fn board_rect_in_screen_pixels(
+            outer_rect: egui::Rect,
+            board_size: egui::Vec2,
+            pixels_per_point: f32,
+        ) -> egui::Rect {
+            geometry::board_rect_in_screen_pixels(outer_rect, board_size, pixels_per_point)
+        }
+
+        fn crop_and_encode_png(image: &egui::ColorImage, rect: egui::Rect) -> Option<Vec<u8>> {
+            let [img_w, img_h] = image.size;
+            let min_x = rect.min.x.max(0.0) as usize;
+            let min_y = rect.min.y.max(0.0) as usize;
+            let max_x = (rect.max.x as usize).min(img_w);
+            let max_y = (rect.max.y as usize).min(img_h);
+            let crop_w = max_x.saturating_sub(min_x);
+            let crop_h = max_y.saturating_sub(min_y);
+            if crop_w == 0 || crop_h == 0 {
+                return None;
+            }
+
+            let cropped = image.region_by_pixels([min_x, min_y], [crop_w, crop_h]);
+            let rgba: Vec<u8> = cropped
+                .pixels
+                .iter()
+                .flat_map(|c| c.to_array())
+                .collect();
+
+            let img = image::RgbaImage::from_raw(crop_w as u32, crop_h as u32, rgba)?;
+            let mut encoded = Vec::new();
+            img.write_to(
+                &mut std::io::Cursor::new(&mut encoded),
+                image::ImageFormat::Png,
+            )
+            .ok()?;
+            Some(encoded)
+        }
+
+        fn share_or_copy_png(
+            png_bytes: Vec<u8>,
+            filename: String,
+            title: String,
+            share_result: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        ) {
+            use wasm_bindgen::JsValue;
+            use wasm_bindgen_futures::spawn_local;
+            use web_sys::{BlobPropertyBag, FilePropertyBag};
+
+            spawn_local(async move {
+                let window = match web_sys::window() {
+                    Some(w) => w,
+                    None => return,
+                };
+                let navigator = window.navigator();
+
+                let array = js_sys::Uint8Array::from(&png_bytes[..]);
+                let parts = js_sys::Array::new();
+                parts.push(&array);
+
+                let blob_options = BlobPropertyBag::new();
+                blob_options.set_type("image/png");
+                let blob = match web_sys::Blob::new_with_u8_array_sequence_and_options(
+                    parts.as_ref(),
+                    &blob_options,
+                ) {
+                    Ok(b) => b,
+                    Err(_) => {
+                        *share_result.lock().unwrap() = Some("Couldn't create image.".to_string());
+                        return;
+                    }
+                };
+
+                // Try Web Share first.
+                let share_data = web_sys::ShareData::new();
+                share_data.set_title(&title);
+                let files = js_sys::Array::new();
+                let file_options = FilePropertyBag::new();
+                file_options.set_type("image/png");
+                let file = match web_sys::File::new_with_u8_array_sequence_and_options(
+                    parts.as_ref(),
+                    &filename,
+                    &file_options,
+                ) {
+                    Ok(f) => f,
+                    Err(_) => {
+                        *share_result.lock().unwrap() =
+                            Some("Couldn't create image file.".to_string());
+                        return;
+                    }
+                };
+                files.push(&file);
+                share_data.set_files(files.as_ref());
+
+                let has = |target: &JsValue, name: &str| {
+                    js_sys::Reflect::has(target, &JsValue::from_str(name)).unwrap_or(false)
+                };
+
+                let share_supported = has(&navigator, "share");
+                let can_share_supported = has(&navigator, "canShare");
+                let should_share = share_supported
+                    && (!can_share_supported || navigator.can_share_with_data(&share_data));
+
+                if should_share {
+                    let promise = navigator.share_with_data(&share_data);
+                    let result = wasm_bindgen_futures::JsFuture::from(promise).await;
+                    if result.is_ok() {
+                        *share_result.lock().unwrap() = Some("Shared!".to_string());
+                        return;
+                    }
+                }
+
+                // Fallback: copy image to clipboard.
+                if !has(&navigator, "clipboard") {
+                    *share_result.lock().unwrap() =
+                        Some("Couldn't share or copy image.".to_string());
+                    return;
+                }
+                let clipboard = navigator.clipboard();
+                if !has(&clipboard, "write") {
+                    *share_result.lock().unwrap() =
+                        Some("Couldn't share or copy image.".to_string());
+                    return;
+                }
+
+                let record = js_sys::Object::new();
+                let _ = js_sys::Reflect::set(&record, &JsValue::from_str("image/png"), &blob);
+                let item = match web_sys::ClipboardItem::new_with_record_from_str_to_blob_promise(
+                    &record,
+                ) {
+                    Ok(i) => i,
+                    Err(_) => {
+                        *share_result.lock().unwrap() =
+                            Some("Couldn't prepare clipboard item.".to_string());
+                        return;
+                    }
+                };
+                let items = js_sys::Array::new();
+                items.push(&item);
+                let items_js: JsValue = items.into();
+                let result = wasm_bindgen_futures::JsFuture::from(clipboard.write(&items_js)).await;
+                *share_result.lock().unwrap() = if result.is_ok() {
+                    Some("Copied to clipboard!".to_string())
+                } else {
+                    Some("Couldn't share or copy image.".to_string())
+                };
+            });
+        }
+
         fn is_mobile(ui: &egui::Ui) -> bool {
             let content = ui.ctx().content_rect();
             let width_small = content.width() < 900.0;
             let touch_device = web_sys::window()
                 .and_then(|w| w.match_media("(pointer: coarse)").ok())
                 .flatten()
-                .map_or(false, |mql| mql.matches());
+                .is_some_and(|mql| mql.matches());
             width_small || touch_device
         }
 
@@ -170,23 +467,64 @@ fn run() {
                         });
 
                         columns[4].with_layout(center, |ui| {
-                            if self.question_marks {
-                                if ui
+                            if self.question_marks
+                                && ui
                                     .add_enabled(
                                         playing && has_selection,
                                         egui::Button::new(egui::RichText::new("❓").size(36.0))
                                             .min_size(egui::vec2(64.0, 64.0)),
                                     )
                                     .clicked()
-                                {
-                                    if let Some((x, y)) = self.selected_cell {
-                                        if on_marked {
-                                            self.game.clear_marker(x, y);
-                                        } else {
-                                            self.game.mark(x, y);
-                                        }
+                            {
+                                if let Some((x, y)) = self.selected_cell {
+                                    if on_marked {
+                                        self.game.clear_marker(x, y);
+                                    } else {
+                                        self.game.mark(x, y);
                                     }
                                 }
+                            }
+                        });
+                    });
+                });
+        }
+
+        fn show_mobile_result_banner(&mut self, ui: &mut egui::Ui) {
+            if self.game.status == GameStatus::Playing {
+                return;
+            }
+
+            let (text, color) = match self.game.status {
+                GameStatus::Won => ("🎉 You won!", egui::Color32::GREEN),
+                GameStatus::Lost => ("💥 Boom!", egui::Color32::RED),
+                GameStatus::Playing => unreachable!(),
+            };
+
+            egui::Panel::top("mobile_result_banner")
+                .resizable(false)
+                .frame(
+                    egui::Frame::NONE
+                        .fill(ui.visuals().panel_fill)
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .inner_margin(egui::Margin::symmetric(12, 8)),
+                )
+                .show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(color, egui::RichText::new(text).size(20.0));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("📤 Share").clicked() {
+                                let restore_scene = self.scene_rect.unwrap_or_else(|| {
+                                    let board_size = egui::vec2(
+                                        self.game.width as f32 * Self::MOBILE_CELL_SIZE,
+                                        self.game.height as f32 * Self::MOBILE_CELL_SIZE,
+                                    );
+                                    egui::Rect::from_min_size(egui::Pos2::ZERO, board_size)
+                                });
+                                self.share_state = ShareState::Capture {
+                                    restore_scene,
+                                    wait_frames: 5,
+                                };
+                                self.capture_board_rect = None;
                             }
                         });
                     });
@@ -368,18 +706,39 @@ fn run() {
         fn mobile_ui(&mut self, ui: &mut egui::Ui) {
             ui.spacing_mut().interact_size.y = 64.0;
 
-            self.show_action_bar(ui);
+            let capturing = matches!(self.share_state, ShareState::Capture { .. });
+
+            if !capturing {
+                self.show_mobile_result_banner(ui);
+            }
+
+            if !capturing {
+                self.show_action_bar(ui);
+            }
 
             let board_size = egui::vec2(
                 self.game.width as f32 * Self::MOBILE_CELL_SIZE,
                 self.game.height as f32 * Self::MOBILE_CELL_SIZE,
             );
+
+            if capturing {
+                let full_board_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, board_size);
+                self.scene_rect = Some(full_board_rect);
+            }
+
             let mut scene_rect = self
                 .scene_rect
                 .unwrap_or_else(|| egui::Rect::from_min_size(egui::Pos2::ZERO, board_size));
 
+            let outer_rect =
+                egui::Rect::from_min_size(ui.min_rect().min, ui.available_size_before_wrap());
+
             egui::containers::Scene::new()
-                .zoom_range(0.25..=4.0)
+                .zoom_range(if capturing {
+                    0.0..=f32::INFINITY
+                } else {
+                    0.25..=4.0
+                })
                 .max_inner_size(board_size)
                 .show(ui, &mut scene_rect, |ui| {
                     ui.add(
@@ -392,7 +751,35 @@ fn run() {
                     );
                 });
 
-            self.scene_rect = Some(scene_rect);
+            if capturing {
+                let dpr = ui
+                    .ctx()
+                    .input(|i| i.viewport().native_pixels_per_point)
+                    .unwrap_or(1.0);
+                self.capture_board_rect =
+                    Some(Self::board_rect_in_screen_pixels(outer_rect, board_size, dpr));
+                ui.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+                if let ShareState::Capture { restore_scene, .. } = self.share_state {
+                    self.scene_rect = Some(restore_scene);
+                }
+            } else {
+                self.scene_rect = Some(scene_rect);
+            }
+
+            if let Some((msg, _)) = &self.toast {
+                let toast_rect = ui.max_rect().shrink(16.0);
+                ui.put(
+                    egui::Rect::from_min_size(
+                        toast_rect.left_bottom() - egui::vec2(0.0, 40.0),
+                        egui::vec2(toast_rect.width(), 40.0),
+                    ),
+                    egui::Label::new(
+                        egui::RichText::new(msg)
+                            .size(16.0)
+                            .color(ui.visuals().strong_text_color()),
+                    ),
+                );
+            }
         }
     }
 

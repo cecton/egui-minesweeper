@@ -21,6 +21,7 @@ egui = { version = "0.34", default-features = false }
 fastrand = "2"
 
 [dev-dependencies]
+egui = { version = "0.34", default-features = false }
 xtask-wasm = { version = "0.6.5", features = ["run-example", "wasm-opt"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
@@ -29,4 +30,17 @@ eframe = { version = "0.34", default-features = false, features = [
     "glow",
 ] }
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+js-sys = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+web-sys = { version = "0.3", features = [
+    "Blob",
+    "BlobPropertyBag",
+    "Clipboard",
+    "ClipboardItem",
+    "File",
+    "FilePropertyBag",
+    "HtmlCanvasElement",
+    "Navigator",
+    "ShareData",
+    "Window",
+] }
