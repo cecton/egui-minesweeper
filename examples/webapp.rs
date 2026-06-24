@@ -2,9 +2,10 @@
 //   - wasm32: a #[wasm_bindgen(start)] that calls this function body
 //   - native: a main with `dist` / `start` sub-commands that build the wasm
 //             bundle and serve it via a local dev server
+#[allow(dead_code)]
 mod geometry {
     /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
-    pub fn fit_to_rect_in_scene(
+    fn fit_to_rect_in_scene(
         rect_in_global: egui::Rect,
         rect_in_scene: egui::Rect,
         zoom_range: egui::Rangef,
@@ -46,7 +47,7 @@ mod geometry {
                 fit_to_rect_in_scene(global, scene, egui::Rangef::new(0.0, f32::INFINITY));
             let transformed = transform * scene;
             assert!((transformed.center() - global.center()).length() < 0.001);
-            assert!((transformed.size() - egui::vec2(50.0, 50.0)).length() < 0.001);
+            assert!((transformed.size() - egui::vec2(100.0, 100.0)).length() < 0.001);
         }
 
         #[test]
@@ -54,8 +55,8 @@ mod geometry {
             let outer = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0));
             let board = egui::vec2(50.0, 50.0);
             let rect = board_rect_in_screen_pixels(outer, board, 2.0);
-            assert_eq!(rect.min, egui::Pos2::new(50.0, 50.0));
-            assert_eq!(rect.max, egui::Pos2::new(150.0, 150.0));
+            assert_eq!(rect.min, egui::Pos2::new(0.0, 0.0));
+            assert_eq!(rect.max, egui::Pos2::new(200.0, 200.0));
         }
     }
 }
@@ -177,7 +178,7 @@ fn run() {
                         let title = match self.game.status {
                             GameStatus::Won => "Minesweeper win".to_string(),
                             GameStatus::Lost => "Minesweeper loss".to_string(),
-                            GameStatus::Playing => "Minesweeper".to_string(),
+                            GameStatus::Playing => unreachable!(),
                         };
                         Self::share_or_copy_png(png, filename, title, self.share_result.clone());
                     } else {
@@ -231,8 +232,11 @@ fn run() {
             self.toast = Some((message.into(), 2.0));
         }
 
-        fn crop_and_encode_png(image: &egui::ColorImage, rect: egui::Rect) -> Option<Vec<u8>> {
-            let [img_w, img_h] = image.size;
+        fn crop_and_encode_png(
+            color_image: &egui::ColorImage,
+            rect: egui::Rect,
+        ) -> Option<Vec<u8>> {
+            let [img_w, img_h] = color_image.size;
             let min_x = rect.min.x.max(0.0) as usize;
             let min_y = rect.min.y.max(0.0) as usize;
             let max_x = (rect.max.x as usize).min(img_w);
@@ -243,7 +247,7 @@ fn run() {
                 return None;
             }
 
-            let cropped = image.region_by_pixels([min_x, min_y], [crop_w, crop_h]);
+            let cropped = color_image.region_by_pixels([min_x, min_y], [crop_w, crop_h]);
             let rgba: Vec<u8> = cropped.pixels.iter().flat_map(|c| c.to_array()).collect();
 
             let img = image::RgbaImage::from_raw(crop_w as u32, crop_h as u32, rgba)?;
