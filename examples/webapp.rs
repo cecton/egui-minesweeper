@@ -2,7 +2,6 @@
 //   - wasm32: a #[wasm_bindgen(start)] that calls this function body
 //   - native: a main with `dist` / `start` sub-commands that build the wasm
 //             bundle and serve it via a local dev server
-#[allow(dead_code)]
 mod geometry {
     /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
     pub fn fit_to_rect_in_scene(
@@ -226,27 +225,10 @@ fn run() {
     impl MinesweeperApp {
         const MOBILE_CELL_SIZE: f32 = 34.0;
         const MENU_FONT_SIZE: f32 = 24.0;
+        const SCREENSHOT_TIMEOUT_FRAMES: u8 = 5;
 
         fn set_toast(&mut self, message: impl Into<String>) {
             self.toast = Some((message.into(), 2.0));
-        }
-
-        /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
-        fn fit_to_rect_in_scene(
-            rect_in_global: egui::Rect,
-            rect_in_scene: egui::Rect,
-            zoom_range: egui::Rangef,
-        ) -> egui::emath::TSTransform {
-            geometry::fit_to_rect_in_scene(rect_in_global, rect_in_scene, zoom_range)
-        }
-
-        /// Computes the board's on-screen pixel rectangle when the scene is reset to show the full board.
-        fn board_rect_in_screen_pixels(
-            outer_rect: egui::Rect,
-            board_size: egui::Vec2,
-            pixels_per_point: f32,
-        ) -> egui::Rect {
-            geometry::board_rect_in_screen_pixels(outer_rect, board_size, pixels_per_point)
         }
 
         fn crop_and_encode_png(image: &egui::ColorImage, rect: egui::Rect) -> Option<Vec<u8>> {
@@ -521,7 +503,7 @@ fn run() {
                                 });
                                 self.share_state = ShareState::Capture {
                                     restore_scene,
-                                    wait_frames: 5,
+                                    wait_frames: Self::SCREENSHOT_TIMEOUT_FRAMES,
                                 };
                                 self.capture_board_rect = None;
                             }
@@ -541,6 +523,8 @@ fn run() {
                     self.game = MinesweeperGame::new(w, h, m);
                     self.selected_cell = None;
                     self.scene_rect = None;
+                    self.share_state = ShareState::Idle;
+                    self.capture_board_rect = None;
                     if close_on_select {
                         ui.close();
                     }
@@ -609,6 +593,8 @@ fn run() {
                             self.game.reset();
                             self.selected_cell = None;
                             self.scene_rect = None;
+                            self.share_state = ShareState::Idle;
+                            self.capture_board_rect = None;
                             self.show_menu = false;
                         }
                         ui.visuals_mut().button_frame = prev;
@@ -628,6 +614,8 @@ fn run() {
                             self.game = MinesweeperGame::new(w, h, m);
                             self.selected_cell = None;
                             self.scene_rect = None;
+                            self.share_state = ShareState::Idle;
+                            self.capture_board_rect = None;
                             self.show_menu = false;
                         }
                     }
@@ -684,6 +672,8 @@ fn run() {
                                         self.game.reset();
                                         self.selected_cell = None;
                                         self.scene_rect = None;
+                                        self.share_state = ShareState::Idle;
+                                        self.capture_board_rect = None;
                                     }
                                 },
                             );
@@ -709,9 +699,6 @@ fn run() {
 
             if !capturing {
                 self.show_mobile_result_banner(ui);
-            }
-
-            if !capturing {
                 self.show_action_bar(ui);
             }
 
@@ -755,7 +742,7 @@ fn run() {
                     .ctx()
                     .input(|i| i.viewport().native_pixels_per_point)
                     .unwrap_or(1.0);
-                self.capture_board_rect = Some(Self::board_rect_in_screen_pixels(
+                self.capture_board_rect = Some(geometry::board_rect_in_screen_pixels(
                     outer_rect, board_size, dpr,
                 ));
                 ui.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
@@ -767,12 +754,18 @@ fn run() {
             }
 
             if let Some((msg, _)) = &self.toast {
-                let toast_rect = ui.max_rect().shrink(16.0);
+                let toast_area = ui.max_rect().shrink(16.0);
+                let toast_rect = egui::Rect::from_min_size(
+                    toast_area.left_bottom() - egui::vec2(0.0, 40.0),
+                    egui::vec2(toast_area.width(), 40.0),
+                );
+                ui.painter().rect_filled(
+                    toast_rect,
+                    egui::CornerRadius::same(6),
+                    ui.visuals().panel_fill.gamma_multiply(0.85),
+                );
                 ui.put(
-                    egui::Rect::from_min_size(
-                        toast_rect.left_bottom() - egui::vec2(0.0, 40.0),
-                        egui::vec2(toast_rect.width(), 40.0),
-                    ),
+                    toast_rect,
                     egui::Label::new(
                         egui::RichText::new(msg)
                             .size(16.0)

@@ -30,7 +30,7 @@ egui-minesweeper = "0.1"
 
 Then use it in your egui app:
 
-```rust
+```rust,ignore
 use egui_minesweeper::{MinesweeperGame, MinesweeperWidget};
 
 // Store the game in your app state
@@ -45,7 +45,7 @@ ui.add(MinesweeperWidget::new(&mut game).cell_size(32.0));
 
 After each frame you can inspect `game.status` to check for a win or loss:
 
-```rust
+```rust,ignore
 use egui_minesweeper::GameStatus;
 
 match game.status {
@@ -57,7 +57,7 @@ match game.status {
 
 To start a new game with the same settings:
 
-```rust
+```rust,ignore
 game.reset();
 ```
 

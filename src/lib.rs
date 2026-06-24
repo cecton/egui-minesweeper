@@ -299,7 +299,7 @@ impl MinesweeperGame {
 /// Left-click reveals a cell;
 /// right-click cycles between hidden -> red flag -> blue marker -> hidden.
 ///
-/// ```no_run
+/// ```ignore
 /// ui.add(egui_minesweeper::MinesweeperWidget::new(&mut game));
 /// ```
 pub struct MinesweeperWidget<'a> {
