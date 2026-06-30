@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 use egui::{
-    Align2, Color32, CornerRadius, FontId, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui,
-    Vec2, Visuals, Widget,
+    emath::GuiRounding, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Response, Sense, Stroke,
+    StrokeKind, Ui, Vec2, Visuals, Widget,
 };
 
 // ─── Game types ────────────────────────────────────────────────────────────────
@@ -390,6 +390,8 @@ fn number_color(n: u8, dark_mode: bool) -> Color32 {
 }
 
 fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32, visuals: &Visuals) {
+    let ppi = painter.ctx().pixels_per_point();
+    let rect = rect.round_to_pixels(ppi);
     let inner = rect.shrink(1.0);
     let rounding = CornerRadius::same(2);
     let dark_mode = visuals.dark_mode;
@@ -609,6 +611,11 @@ fn draw_hidden_base(
     rounding: CornerRadius,
     visuals: &Visuals,
 ) {
+    // Snap to pixel grid for clean rendering at any zoom factor.
+    let ppi = painter.ctx().pixels_per_point();
+    let inner = inner.round_to_pixels(ppi);
+    let w = (2.0 * ppi).round() / ppi;
+
     // Raised 3-D look (classic Minesweeper style).
     let base = visuals.widgets.inactive.bg_fill;
     painter.rect_filled(inner, rounding, base);
@@ -627,7 +634,6 @@ fn draw_hidden_base(
     } else {
         Color32::from_rgb(100, 100, 100)
     };
-    let w = 2.0;
     painter.line_segment([tl, tr], Stroke::new(w, highlight));
     painter.line_segment([tl, bl], Stroke::new(w, highlight));
     painter.line_segment([tr, br], Stroke::new(w, shadow));
