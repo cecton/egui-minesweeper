@@ -549,7 +549,7 @@ fn run() {
                             self.scene_rect = None;
                             self.share_state = ShareState::Idle;
                             self.capture_board_rect = None;
-        
+
                             self.show_menu = false;
                         }
                         ui.visuals_mut().button_frame = prev;
@@ -571,7 +571,7 @@ fn run() {
                             self.scene_rect = None;
                             self.share_state = ShareState::Idle;
                             self.capture_board_rect = None;
-        
+
                             self.show_menu = false;
                         }
                     }
@@ -630,7 +630,6 @@ fn run() {
                                         self.scene_rect = None;
                                         self.share_state = ShareState::Idle;
                                         self.capture_board_rect = None;
-                    
                                     }
                                 },
                             );
