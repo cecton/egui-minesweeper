@@ -115,9 +115,7 @@ fn run() {
         prev_status: GameStatus,
         show_menu: bool,
         share_state: ShareState,
-        toast: Option<(String, f32)>,
         capture_board_rect: Option<egui::Rect>,
-        share_result: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     }
 
     impl Default for MinesweeperApp {
@@ -132,9 +130,7 @@ fn run() {
                 prev_status: GameStatus::Playing,
                 show_menu: false,
                 share_state: ShareState::Idle,
-                toast: None,
                 capture_board_rect: None,
-                share_result: std::sync::Arc::new(std::sync::Mutex::new(None)),
             }
         }
     }
@@ -146,6 +142,7 @@ fn run() {
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
             let is_mobile = Self::is_mobile(ui);
+
             self.show_top_bar(ui, is_mobile);
 
             if is_mobile {
@@ -180,9 +177,7 @@ fn run() {
                             GameStatus::Lost => "Minesweeper loss".to_string(),
                             GameStatus::Playing => unreachable!(),
                         };
-                        Self::share_or_copy_png(png, filename, title, self.share_result.clone());
-                    } else {
-                        self.set_toast("Couldn't crop screenshot.");
+                        Self::share_png_now(png, filename, title);
                     }
                 }
                 self.share_state = ShareState::Idle;
@@ -195,27 +190,11 @@ fn run() {
                 if wait_frames == 0 {
                     self.share_state = ShareState::Idle;
                     self.capture_board_rect = None;
-                    self.set_toast("Screenshot failed.");
                 } else {
                     self.share_state = ShareState::Capture {
                         restore_scene,
                         wait_frames: wait_frames - 1,
                     };
-                }
-            }
-
-            // Apply async share/copy result.
-            let share_msg = self.share_result.lock().unwrap().take();
-            if let Some(msg) = share_msg {
-                self.set_toast(msg);
-            }
-
-            // Update toast timer.
-            if let Some((_msg, remaining)) = &mut self.toast {
-                let dt = ui.ctx().input(|i| i.stable_dt);
-                *remaining -= dt;
-                if *remaining <= 0.0 {
-                    self.toast = None;
                 }
             }
 
@@ -227,10 +206,6 @@ fn run() {
         const MOBILE_CELL_SIZE: f32 = 34.0;
         const MENU_FONT_SIZE: f32 = 24.0;
         const SCREENSHOT_TIMEOUT_FRAMES: u8 = 5;
-
-        fn set_toast(&mut self, message: impl Into<String>) {
-            self.toast = Some((message.into(), 2.0));
-        }
 
         fn crop_and_encode_png(
             color_image: &egui::ColorImage,
@@ -260,114 +235,87 @@ fn run() {
             Some(encoded)
         }
 
-        fn share_or_copy_png(
-            png_bytes: Vec<u8>,
-            filename: String,
-            title: String,
-            share_result: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-        ) {
-            use wasm_bindgen::JsValue;
+        fn share_png_now(png_bytes: Vec<u8>, filename: String, title: String) {
             use wasm_bindgen_futures::spawn_local;
             use web_sys::{BlobPropertyBag, FilePropertyBag};
 
-            spawn_local(async move {
-                let window = match web_sys::window() {
-                    Some(w) => w,
-                    None => return,
-                };
-                let navigator = window.navigator();
+            let window = match web_sys::window() {
+                Some(w) => w,
+                None => return,
+            };
+            let navigator = window.navigator();
 
-                let array = js_sys::Uint8Array::from(&png_bytes[..]);
-                let parts = js_sys::Array::new();
-                parts.push(&array);
+            let array = js_sys::Uint8Array::from(&png_bytes[..]);
+            let parts = js_sys::Array::new();
+            parts.push(&array);
 
-                let blob_options = BlobPropertyBag::new();
-                blob_options.set_type("image/png");
-                let blob = match web_sys::Blob::new_with_u8_array_sequence_and_options(
-                    parts.as_ref(),
-                    &blob_options,
-                ) {
-                    Ok(b) => b,
-                    Err(_) => {
-                        *share_result.lock().unwrap() = Some("Couldn't create image.".to_string());
-                        return;
+            let blob_options = BlobPropertyBag::new();
+            blob_options.set_type("image/png");
+            let blob = match web_sys::Blob::new_with_u8_array_sequence_and_options(
+                parts.as_ref(),
+                &blob_options,
+            ) {
+                Ok(b) => b,
+                Err(_) => return,
+            };
+
+            let share_data = web_sys::ShareData::new();
+            share_data.set_title(&title);
+            let files = js_sys::Array::new();
+            let file_options = FilePropertyBag::new();
+            file_options.set_type("image/png");
+            let file = match web_sys::File::new_with_u8_array_sequence_and_options(
+                parts.as_ref(),
+                &filename,
+                &file_options,
+            ) {
+                Ok(f) => f,
+                Err(_) => return,
+            };
+            files.push(&file);
+            share_data.set_files(files.as_ref());
+
+            let has = |target: &wasm_bindgen::JsValue, name: &str| {
+                js_sys::Reflect::has(target, &wasm_bindgen::JsValue::from_str(name))
+                    .unwrap_or(false)
+            };
+
+            if has(&navigator, "share") {
+                let blob_for_download = blob.clone();
+                let filename_for_download = filename.clone();
+                let promise = navigator.share_with_data(&share_data);
+                spawn_local(async move {
+                    if wasm_bindgen_futures::JsFuture::from(promise).await.is_err() {
+                        let _ = Self::download_blob(&blob_for_download, &filename_for_download);
                     }
-                };
+                });
+                return;
+            }
 
-                // Try Web Share first.
-                let share_data = web_sys::ShareData::new();
-                share_data.set_title(&title);
-                let files = js_sys::Array::new();
-                let file_options = FilePropertyBag::new();
-                file_options.set_type("image/png");
-                let file = match web_sys::File::new_with_u8_array_sequence_and_options(
-                    parts.as_ref(),
-                    &filename,
-                    &file_options,
-                ) {
-                    Ok(f) => f,
-                    Err(_) => {
-                        *share_result.lock().unwrap() =
-                            Some("Couldn't create image file.".to_string());
-                        return;
-                    }
-                };
-                files.push(&file);
-                share_data.set_files(files.as_ref());
+            let _ = Self::download_blob(&blob, &filename);
+        }
 
-                let has = |target: &JsValue, name: &str| {
-                    js_sys::Reflect::has(target, &JsValue::from_str(name)).unwrap_or(false)
-                };
-
-                let share_supported = has(&navigator, "share");
-                let can_share_supported = has(&navigator, "canShare");
-                let should_share = share_supported
-                    && (!can_share_supported || navigator.can_share_with_data(&share_data));
-
-                if should_share {
-                    let promise = navigator.share_with_data(&share_data);
-                    let result = wasm_bindgen_futures::JsFuture::from(promise).await;
-                    if result.is_ok() {
-                        *share_result.lock().unwrap() = Some("Shared!".to_string());
-                        return;
-                    }
-                }
-
-                // Fallback: copy image to clipboard.
-                if !has(&navigator, "clipboard") {
-                    *share_result.lock().unwrap() =
-                        Some("Couldn't share or copy image.".to_string());
-                    return;
-                }
-                let clipboard = navigator.clipboard();
-                if !has(&clipboard, "write") {
-                    *share_result.lock().unwrap() =
-                        Some("Couldn't share or copy image.".to_string());
-                    return;
-                }
-
-                let record = js_sys::Object::new();
-                let _ = js_sys::Reflect::set(&record, &JsValue::from_str("image/png"), &blob);
-                let item =
-                    match web_sys::ClipboardItem::new_with_record_from_str_to_blob_promise(&record)
-                    {
-                        Ok(i) => i,
-                        Err(_) => {
-                            *share_result.lock().unwrap() =
-                                Some("Couldn't prepare clipboard item.".to_string());
-                            return;
-                        }
-                    };
-                let items = js_sys::Array::new();
-                items.push(&item);
-                let items_js: JsValue = items.into();
-                let result = wasm_bindgen_futures::JsFuture::from(clipboard.write(&items_js)).await;
-                *share_result.lock().unwrap() = if result.is_ok() {
-                    Some("Copied to clipboard!".to_string())
-                } else {
-                    Some("Couldn't share or copy image.".to_string())
-                };
-            });
+        fn download_blob(blob: &web_sys::Blob, filename: &str) -> Result<(), String> {
+            let window = web_sys::window().ok_or("no window")?;
+            let document = window.document().ok_or("no document")?;
+            let url = web_sys::Url::create_object_url_with_blob(blob)
+                .map_err(|_| "couldn't create object URL".to_string())?;
+            let a = document
+                .create_element("a")
+                .map_err(|_| "couldn't create link".to_string())?;
+            a.set_attribute("href", &url)
+                .map_err(|_| "couldn't set href".to_string())?;
+            a.set_attribute("download", filename)
+                .map_err(|_| "couldn't set download".to_string())?;
+            let body = document.body().ok_or("no body")?;
+            let _ = body.append_child(&a);
+            a.dyn_ref::<web_sys::HtmlElement>()
+                .ok_or("not an element")?
+                .click();
+            let _ = body.remove_child(&a);
+            web_sys::Url::revoke_object_url(&url)
+                .map_err(|_| "couldn't revoke object URL".to_string())?;
+            Ok(())
         }
 
         fn is_mobile(ui: &egui::Ui) -> bool {
@@ -386,18 +334,21 @@ fn run() {
                 .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 4)))
                 .show_inside(ui, |ui| {
                     let playing = self.game.status == GameStatus::Playing;
-                    let has_selection = self.selected_cell.is_some();
-
-                    let (on_hidden, on_flagged, on_marked) = match self.selected_cell {
-                        Some((x, y)) => {
-                            let cell = &self.game.cells[y * self.game.width + x];
-                            (
-                                matches!(cell.state, CellState::Hidden),
-                                matches!(cell.state, CellState::Flagged),
-                                matches!(cell.state, CellState::Marked),
-                            )
+                    let (has_selection, on_hidden, on_flagged, on_marked) = if playing {
+                        match self.selected_cell {
+                            Some((x, y)) => {
+                                let cell = &self.game.cells[y * self.game.width + x];
+                                (
+                                    true,
+                                    matches!(cell.state, CellState::Hidden),
+                                    matches!(cell.state, CellState::Flagged),
+                                    matches!(cell.state, CellState::Marked),
+                                )
+                            }
+                            None => (false, false, false, false),
                         }
-                        None => (false, false, false),
+                    } else {
+                        (false, false, false, false)
                     };
 
                     let center = egui::Layout::top_down(egui::Align::Center)
@@ -418,28 +369,40 @@ fn run() {
                         });
 
                         columns[2].with_layout(center, |ui| {
-                            if ui
-                                .add_enabled(
-                                    playing && has_selection && on_hidden,
-                                    egui::Button::new(egui::RichText::new("👁").size(36.0))
-                                        .min_size(egui::vec2(64.0, 64.0)),
-                                )
-                                .clicked()
-                            {
-                                if let Some((x, y)) = self.selected_cell.take() {
-                                    self.game.reveal(x, y);
+                            if playing {
+                                if ui
+                                    .add_enabled(
+                                        has_selection && on_hidden,
+                                        egui::Button::new(egui::RichText::new("👁").size(36.0))
+                                            .min_size(egui::vec2(64.0, 64.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some((x, y)) = self.selected_cell.take() {
+                                        self.game.reveal(x, y);
+                                    }
                                 }
+                            } else {
+                                let (icon, color) = match self.game.status {
+                                    GameStatus::Won => ("🎉", egui::Color32::GREEN),
+                                    GameStatus::Lost => ("💥", egui::Color32::RED),
+                                    GameStatus::Playing => unreachable!(),
+                                };
+                                let space = (ui.available_height() - 48.0).max(0.0) / 2.0;
+                                ui.add_space(space);
+                                ui.colored_label(color, egui::RichText::new(icon).size(36.0));
                             }
                         });
 
                         columns[3].with_layout(center, |ui| {
-                            if ui
-                                .add_enabled(
-                                    playing && has_selection,
-                                    egui::Button::new(egui::RichText::new("🚩").size(36.0))
-                                        .min_size(egui::vec2(64.0, 64.0)),
-                                )
-                                .clicked()
+                            if playing
+                                && ui
+                                    .add_enabled(
+                                        has_selection,
+                                        egui::Button::new(egui::RichText::new("🚩").size(36.0))
+                                            .min_size(egui::vec2(64.0, 64.0)),
+                                    )
+                                    .clicked()
                             {
                                 if let Some((x, y)) = self.selected_cell {
                                     if on_flagged {
@@ -452,10 +415,11 @@ fn run() {
                         });
 
                         columns[4].with_layout(center, |ui| {
-                            if self.question_marks
+                            if playing
+                                && self.question_marks
                                 && ui
                                     .add_enabled(
-                                        playing && has_selection,
+                                        has_selection,
                                         egui::Button::new(egui::RichText::new("❓").size(36.0))
                                             .min_size(egui::vec2(64.0, 64.0)),
                                     )
@@ -469,51 +433,36 @@ fn run() {
                                     }
                                 }
                             }
+                            if !playing
+                                && ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("\u{2934}").size(36.0),
+                                        )
+                                        .min_size(egui::vec2(64.0, 64.0)),
+                                    )
+                                    .clicked()
+                            {
+                                self.start_share_capture();
+                            }
                         });
                     });
                 });
         }
 
-        fn show_mobile_result_banner(&mut self, ui: &mut egui::Ui) {
-            if self.game.status == GameStatus::Playing {
-                return;
-            }
-
-            let (text, color) = match self.game.status {
-                GameStatus::Won => ("🎉 You won!", egui::Color32::GREEN),
-                GameStatus::Lost => ("💥 Boom!", egui::Color32::RED),
-                GameStatus::Playing => unreachable!(),
+        fn start_share_capture(&mut self) {
+            let restore_scene = self.scene_rect.unwrap_or_else(|| {
+                let board_size = egui::vec2(
+                    self.game.width as f32 * Self::MOBILE_CELL_SIZE,
+                    self.game.height as f32 * Self::MOBILE_CELL_SIZE,
+                );
+                egui::Rect::from_min_size(egui::Pos2::ZERO, board_size)
+            });
+            self.share_state = ShareState::Capture {
+                restore_scene,
+                wait_frames: Self::SCREENSHOT_TIMEOUT_FRAMES,
             };
-
-            egui::Panel::top("mobile_result_banner")
-                .resizable(false)
-                .frame(
-                    egui::Frame::NONE
-                        .fill(ui.visuals().panel_fill)
-                        .corner_radius(egui::CornerRadius::same(8))
-                        .inner_margin(egui::Margin::symmetric(12, 8)),
-                )
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(color, egui::RichText::new(text).size(20.0));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("📤 Share").clicked() {
-                                let restore_scene = self.scene_rect.unwrap_or_else(|| {
-                                    let board_size = egui::vec2(
-                                        self.game.width as f32 * Self::MOBILE_CELL_SIZE,
-                                        self.game.height as f32 * Self::MOBILE_CELL_SIZE,
-                                    );
-                                    egui::Rect::from_min_size(egui::Pos2::ZERO, board_size)
-                                });
-                                self.share_state = ShareState::Capture {
-                                    restore_scene,
-                                    wait_frames: Self::SCREENSHOT_TIMEOUT_FRAMES,
-                                };
-                                self.capture_board_rect = None;
-                            }
-                        });
-                    });
-                });
+            self.capture_board_rect = None;
         }
 
         fn show_difficulty_select(&mut self, ui: &mut egui::Ui, close_on_select: bool) {
@@ -529,6 +478,7 @@ fn run() {
                     self.scene_rect = None;
                     self.share_state = ShareState::Idle;
                     self.capture_board_rect = None;
+
                     if close_on_select {
                         ui.close();
                     }
@@ -599,6 +549,7 @@ fn run() {
                             self.scene_rect = None;
                             self.share_state = ShareState::Idle;
                             self.capture_board_rect = None;
+        
                             self.show_menu = false;
                         }
                         ui.visuals_mut().button_frame = prev;
@@ -620,6 +571,7 @@ fn run() {
                             self.scene_rect = None;
                             self.share_state = ShareState::Idle;
                             self.capture_board_rect = None;
+        
                             self.show_menu = false;
                         }
                     }
@@ -678,6 +630,7 @@ fn run() {
                                         self.scene_rect = None;
                                         self.share_state = ShareState::Idle;
                                         self.capture_board_rect = None;
+                    
                                     }
                                 },
                             );
@@ -702,7 +655,6 @@ fn run() {
             let capturing = matches!(self.share_state, ShareState::Capture { .. });
 
             if !capturing {
-                self.show_mobile_result_banner(ui);
                 self.show_action_bar(ui);
             }
 
@@ -755,27 +707,6 @@ fn run() {
                 }
             } else {
                 self.scene_rect = Some(scene_rect);
-            }
-
-            if let Some((msg, _)) = &self.toast {
-                let toast_area = ui.max_rect().shrink(16.0);
-                let toast_rect = egui::Rect::from_min_size(
-                    toast_area.left_bottom() - egui::vec2(0.0, 40.0),
-                    egui::vec2(toast_area.width(), 40.0),
-                );
-                ui.painter().rect_filled(
-                    toast_rect,
-                    egui::CornerRadius::same(6),
-                    ui.visuals().panel_fill.gamma_multiply(0.85),
-                );
-                ui.put(
-                    toast_rect,
-                    egui::Label::new(
-                        egui::RichText::new(msg)
-                            .size(16.0)
-                            .color(ui.visuals().strong_text_color()),
-                    ),
-                );
             }
         }
     }
