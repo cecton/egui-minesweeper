@@ -102,6 +102,7 @@ fn run() {
         Capture {
             restore_scene: egui::Rect,
             wait_frames: u8,
+            screenshot_requested: bool,
         },
     }
 
@@ -180,20 +181,20 @@ fn run() {
                         Self::share_png_now(png, filename, title);
                     }
                 }
-                self.share_state = ShareState::Idle;
-                self.capture_board_rect = None;
+                self.reset_share_state();
             } else if let ShareState::Capture {
                 restore_scene,
                 wait_frames,
+                screenshot_requested,
             } = self.share_state
             {
                 if wait_frames == 0 {
-                    self.share_state = ShareState::Idle;
-                    self.capture_board_rect = None;
+                    self.reset_share_state();
                 } else {
                     self.share_state = ShareState::Capture {
                         restore_scene,
                         wait_frames: wait_frames - 1,
+                        screenshot_requested,
                     };
                 }
             }
@@ -275,12 +276,9 @@ fn run() {
             files.push(&file);
             share_data.set_files(files.as_ref());
 
-            let has = |target: &wasm_bindgen::JsValue, name: &str| {
-                js_sys::Reflect::has(target, &wasm_bindgen::JsValue::from_str(name))
-                    .unwrap_or(false)
-            };
-
-            if has(&navigator, "share") {
+            if js_sys::Reflect::has(&navigator, &wasm_bindgen::JsValue::from_str("share"))
+                .unwrap_or(false)
+            {
                 let blob_for_download = blob.clone();
                 let filename_for_download = filename.clone();
                 let promise = navigator.share_with_data(&share_data);
@@ -450,6 +448,11 @@ fn run() {
                 });
         }
 
+        fn reset_share_state(&mut self) {
+            self.share_state = ShareState::Idle;
+            self.capture_board_rect = None;
+        }
+
         fn start_share_capture(&mut self) {
             let restore_scene = self.scene_rect.unwrap_or_else(|| {
                 let board_size = egui::vec2(
@@ -461,6 +464,7 @@ fn run() {
             self.share_state = ShareState::Capture {
                 restore_scene,
                 wait_frames: Self::SCREENSHOT_TIMEOUT_FRAMES,
+                screenshot_requested: false,
             };
             self.capture_board_rect = None;
         }
@@ -476,8 +480,7 @@ fn run() {
                     self.game = MinesweeperGame::new(w, h, m);
                     self.selected_cell = None;
                     self.scene_rect = None;
-                    self.share_state = ShareState::Idle;
-                    self.capture_board_rect = None;
+                    self.reset_share_state();
 
                     if close_on_select {
                         ui.close();
@@ -547,8 +550,7 @@ fn run() {
                             self.game.reset();
                             self.selected_cell = None;
                             self.scene_rect = None;
-                            self.share_state = ShareState::Idle;
-                            self.capture_board_rect = None;
+                            self.reset_share_state();
 
                             self.show_menu = false;
                         }
@@ -569,8 +571,7 @@ fn run() {
                             self.game = MinesweeperGame::new(w, h, m);
                             self.selected_cell = None;
                             self.scene_rect = None;
-                            self.share_state = ShareState::Idle;
-                            self.capture_board_rect = None;
+                            self.reset_share_state();
 
                             self.show_menu = false;
                         }
@@ -628,8 +629,7 @@ fn run() {
                                         self.game.reset();
                                         self.selected_cell = None;
                                         self.scene_rect = None;
-                                        self.share_state = ShareState::Idle;
-                                        self.capture_board_rect = None;
+                                        self.reset_share_state();
                                     }
                                 },
                             );
@@ -692,7 +692,12 @@ fn run() {
                     );
                 });
 
-            if capturing {
+            if let ShareState::Capture {
+                restore_scene,
+                ref mut screenshot_requested,
+                ..
+            } = self.share_state
+            {
                 let dpr = ui
                     .ctx()
                     .input(|i| i.viewport().native_pixels_per_point)
@@ -700,10 +705,13 @@ fn run() {
                 self.capture_board_rect = Some(geometry::board_rect_in_screen_pixels(
                     outer_rect, board_size, dpr,
                 ));
-                ui.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-                if let ShareState::Capture { restore_scene, .. } = self.share_state {
-                    self.scene_rect = Some(restore_scene);
+                if !*screenshot_requested {
+                    ui.send_viewport_cmd(egui::ViewportCommand::Screenshot(
+                        egui::UserData::default(),
+                    ));
+                    *screenshot_requested = true;
                 }
+                self.scene_rect = Some(restore_scene);
             } else {
                 self.scene_rect = Some(scene_rect);
             }
