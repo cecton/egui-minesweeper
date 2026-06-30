@@ -9,10 +9,9 @@ Versioning](semver).
 
 ### Added
 
-- Mobile result banner that appears when a game is won or lost, with a Share button on wins.
-- Share button captures a screenshot of the full Minesweeper board even when zoomed or panned.
-- Screenshot is shared via the native Web Share API when available, falling back to copying the image to the clipboard.
-- Toast feedback for share/copy actions in the mobile UI.
+- Game status emoji (🎉 green / 💥 red) and share button inline in the mobile action bar when game ends.
+- File download fallback for screenshot sharing via blob URL and hidden `<a>` click.
+- `download_blob` helper for downloading screenshots when Web Share is unavailable.
 
 ## [0.1.5] - 2026-06-26
 
