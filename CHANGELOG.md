@@ -7,6 +7,12 @@ Versioning](semver).
 
 ## [Unreleased]
 
+### Added
+
+- Game status emoji (🎉 green / 💥 red) and share button inline in the mobile action bar when game ends.
+- File download fallback for screenshot sharing via blob URL and hidden `<a>` click.
+- `download_blob` helper for downloading screenshots when Web Share is unavailable.
+
 ## [0.1.5] - 2026-06-26
 
 ### Fixed

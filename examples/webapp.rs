@@ -2,6 +2,65 @@
 //   - wasm32: a #[wasm_bindgen(start)] that calls this function body
 //   - native: a main with `dist` / `start` sub-commands that build the wasm
 //             bundle and serve it via a local dev server
+#[allow(dead_code)]
+mod geometry {
+    /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
+    fn fit_to_rect_in_scene(
+        rect_in_global: egui::Rect,
+        rect_in_scene: egui::Rect,
+        zoom_range: egui::Rangef,
+    ) -> egui::emath::TSTransform {
+        let scale = rect_in_global.size() / rect_in_scene.size();
+        let scale = scale.min_elem();
+        let scale = zoom_range.clamp(scale);
+        let center_in_global = rect_in_global.center().to_vec2();
+        let center_scene = rect_in_scene.center().to_vec2();
+        egui::emath::TSTransform::from_translation(center_in_global - scale * center_scene)
+            * egui::emath::TSTransform::from_scaling(scale)
+    }
+
+    /// Computes the board's on-screen pixel rectangle when the scene is reset to show the full board.
+    pub fn board_rect_in_screen_pixels(
+        outer_rect: egui::Rect,
+        board_size: egui::Vec2,
+        pixels_per_point: f32,
+    ) -> egui::Rect {
+        let scene_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, board_size);
+        let zoom_range = egui::Rangef::new(0.0, f32::INFINITY);
+        let transform = fit_to_rect_in_scene(outer_rect, scene_rect, zoom_range);
+        let board_global = transform * scene_rect;
+        egui::Rect::from_min_max(
+            (board_global.min * pixels_per_point).round(),
+            (board_global.max * pixels_per_point).round(),
+        )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn fit_to_rect_in_scene_centers_board() {
+            let global = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0));
+            let scene = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(50.0, 50.0));
+            let transform =
+                fit_to_rect_in_scene(global, scene, egui::Rangef::new(0.0, f32::INFINITY));
+            let transformed = transform * scene;
+            assert!((transformed.center() - global.center()).length() < 0.001);
+            assert!((transformed.size() - egui::vec2(100.0, 100.0)).length() < 0.001);
+        }
+
+        #[test]
+        fn board_rect_in_screen_pixels_matches_scale() {
+            let outer = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0));
+            let board = egui::vec2(50.0, 50.0);
+            let rect = board_rect_in_screen_pixels(outer, board, 2.0);
+            assert_eq!(rect.min, egui::Pos2::new(0.0, 0.0));
+            assert_eq!(rect.max, egui::Pos2::new(200.0, 200.0));
+        }
+    }
+}
+
 #[xtask_wasm::run_example(assets_dir = "assets")]
 fn run() {
     use eframe::egui;
@@ -37,6 +96,16 @@ fn run() {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum ShareState {
+        Idle,
+        Capture {
+            restore_scene: egui::Rect,
+            wait_frames: u8,
+            screenshot_requested: bool,
+        },
+    }
+
     struct MinesweeperApp {
         game: MinesweeperGame,
         selected_preset: Preset,
@@ -46,6 +115,8 @@ fn run() {
         scene_rect: Option<egui::Rect>,
         prev_status: GameStatus,
         show_menu: bool,
+        share_state: ShareState,
+        capture_board_rect: Option<egui::Rect>,
     }
 
     impl Default for MinesweeperApp {
@@ -59,6 +130,8 @@ fn run() {
                 scene_rect: None,
                 prev_status: GameStatus::Playing,
                 show_menu: false,
+                share_state: ShareState::Idle,
+                capture_board_rect: None,
             }
         }
     }
@@ -70,6 +143,7 @@ fn run() {
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
             let is_mobile = Self::is_mobile(ui);
+
             self.show_top_bar(ui, is_mobile);
 
             if is_mobile {
@@ -80,6 +154,51 @@ fn run() {
 
             self.show_menu_modal(ui.ctx());
 
+            // Handle screenshot result and capture timeout.
+            let mut screenshot = None;
+            if matches!(self.share_state, ShareState::Capture { .. }) {
+                ui.input(|i| {
+                    for event in &i.raw.events {
+                        if let egui::Event::Screenshot { image, .. } = event {
+                            screenshot = Some(image.clone());
+                        }
+                    }
+                });
+            }
+
+            if let Some(image) = screenshot {
+                if let Some(rect) = self.capture_board_rect {
+                    if let Some(png) = Self::crop_and_encode_png(&image, rect) {
+                        let filename = format!(
+                            "minesweeper-{}x{}-{}.png",
+                            self.game.width, self.game.height, self.game.mines
+                        );
+                        let title = match self.game.status {
+                            GameStatus::Won => "Minesweeper win".to_string(),
+                            GameStatus::Lost => "Minesweeper loss".to_string(),
+                            GameStatus::Playing => unreachable!(),
+                        };
+                        Self::share_png_now(png, filename, title);
+                    }
+                }
+                self.reset_share_state();
+            } else if let ShareState::Capture {
+                restore_scene,
+                wait_frames,
+                screenshot_requested,
+            } = self.share_state
+            {
+                if wait_frames == 0 {
+                    self.reset_share_state();
+                } else {
+                    self.share_state = ShareState::Capture {
+                        restore_scene,
+                        wait_frames: wait_frames - 1,
+                        screenshot_requested,
+                    };
+                }
+            }
+
             self.prev_status = self.game.status;
         }
     }
@@ -87,6 +206,115 @@ fn run() {
     impl MinesweeperApp {
         const MOBILE_CELL_SIZE: f32 = 34.0;
         const MENU_FONT_SIZE: f32 = 24.0;
+        const SCREENSHOT_TIMEOUT_FRAMES: u8 = 5;
+
+        fn crop_and_encode_png(
+            color_image: &egui::ColorImage,
+            rect: egui::Rect,
+        ) -> Option<Vec<u8>> {
+            let [img_w, img_h] = color_image.size;
+            let min_x = rect.min.x.max(0.0) as usize;
+            let min_y = rect.min.y.max(0.0) as usize;
+            let max_x = (rect.max.x as usize).min(img_w);
+            let max_y = (rect.max.y as usize).min(img_h);
+            let crop_w = max_x.saturating_sub(min_x);
+            let crop_h = max_y.saturating_sub(min_y);
+            if crop_w == 0 || crop_h == 0 {
+                return None;
+            }
+
+            let cropped = color_image.region_by_pixels([min_x, min_y], [crop_w, crop_h]);
+            let rgba: Vec<u8> = cropped.pixels.iter().flat_map(|c| c.to_array()).collect();
+
+            let img = image::RgbaImage::from_raw(crop_w as u32, crop_h as u32, rgba)?;
+            let mut encoded = Vec::new();
+            img.write_to(
+                &mut std::io::Cursor::new(&mut encoded),
+                image::ImageFormat::Png,
+            )
+            .ok()?;
+            Some(encoded)
+        }
+
+        fn share_png_now(png_bytes: Vec<u8>, filename: String, title: String) {
+            use wasm_bindgen_futures::spawn_local;
+            use web_sys::{BlobPropertyBag, FilePropertyBag};
+
+            let window = match web_sys::window() {
+                Some(w) => w,
+                None => return,
+            };
+            let navigator = window.navigator();
+
+            let array = js_sys::Uint8Array::from(&png_bytes[..]);
+            let parts = js_sys::Array::new();
+            parts.push(&array);
+
+            let blob_options = BlobPropertyBag::new();
+            blob_options.set_type("image/png");
+            let blob = match web_sys::Blob::new_with_u8_array_sequence_and_options(
+                parts.as_ref(),
+                &blob_options,
+            ) {
+                Ok(b) => b,
+                Err(_) => return,
+            };
+
+            let share_data = web_sys::ShareData::new();
+            share_data.set_title(&title);
+            let files = js_sys::Array::new();
+            let file_options = FilePropertyBag::new();
+            file_options.set_type("image/png");
+            let file = match web_sys::File::new_with_u8_array_sequence_and_options(
+                parts.as_ref(),
+                &filename,
+                &file_options,
+            ) {
+                Ok(f) => f,
+                Err(_) => return,
+            };
+            files.push(&file);
+            share_data.set_files(files.as_ref());
+
+            if js_sys::Reflect::has(&navigator, &wasm_bindgen::JsValue::from_str("share"))
+                .unwrap_or(false)
+            {
+                let blob_for_download = blob.clone();
+                let filename_for_download = filename.clone();
+                let promise = navigator.share_with_data(&share_data);
+                spawn_local(async move {
+                    if wasm_bindgen_futures::JsFuture::from(promise).await.is_err() {
+                        let _ = Self::download_blob(&blob_for_download, &filename_for_download);
+                    }
+                });
+                return;
+            }
+
+            let _ = Self::download_blob(&blob, &filename);
+        }
+
+        fn download_blob(blob: &web_sys::Blob, filename: &str) -> Result<(), String> {
+            let window = web_sys::window().ok_or("no window")?;
+            let document = window.document().ok_or("no document")?;
+            let url = web_sys::Url::create_object_url_with_blob(blob)
+                .map_err(|_| "couldn't create object URL".to_string())?;
+            let a = document
+                .create_element("a")
+                .map_err(|_| "couldn't create link".to_string())?;
+            a.set_attribute("href", &url)
+                .map_err(|_| "couldn't set href".to_string())?;
+            a.set_attribute("download", filename)
+                .map_err(|_| "couldn't set download".to_string())?;
+            let body = document.body().ok_or("no body")?;
+            let _ = body.append_child(&a);
+            a.dyn_ref::<web_sys::HtmlElement>()
+                .ok_or("not an element")?
+                .click();
+            let _ = body.remove_child(&a);
+            web_sys::Url::revoke_object_url(&url)
+                .map_err(|_| "couldn't revoke object URL".to_string())?;
+            Ok(())
+        }
 
         fn is_mobile(ui: &egui::Ui) -> bool {
             let content = ui.ctx().content_rect();
@@ -94,7 +322,7 @@ fn run() {
             let touch_device = web_sys::window()
                 .and_then(|w| w.match_media("(pointer: coarse)").ok())
                 .flatten()
-                .map_or(false, |mql| mql.matches());
+                .is_some_and(|mql| mql.matches());
             width_small || touch_device
         }
 
@@ -104,18 +332,21 @@ fn run() {
                 .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 4)))
                 .show_inside(ui, |ui| {
                     let playing = self.game.status == GameStatus::Playing;
-                    let has_selection = self.selected_cell.is_some();
-
-                    let (on_hidden, on_flagged, on_marked) = match self.selected_cell {
-                        Some((x, y)) => {
-                            let cell = &self.game.cells[y * self.game.width + x];
-                            (
-                                matches!(cell.state, CellState::Hidden),
-                                matches!(cell.state, CellState::Flagged),
-                                matches!(cell.state, CellState::Marked),
-                            )
+                    let (has_selection, on_hidden, on_flagged, on_marked) = if playing {
+                        match self.selected_cell {
+                            Some((x, y)) => {
+                                let cell = &self.game.cells[y * self.game.width + x];
+                                (
+                                    true,
+                                    matches!(cell.state, CellState::Hidden),
+                                    matches!(cell.state, CellState::Flagged),
+                                    matches!(cell.state, CellState::Marked),
+                                )
+                            }
+                            None => (false, false, false, false),
                         }
-                        None => (false, false, false),
+                    } else {
+                        (false, false, false, false)
                     };
 
                     let center = egui::Layout::top_down(egui::Align::Center)
@@ -136,28 +367,40 @@ fn run() {
                         });
 
                         columns[2].with_layout(center, |ui| {
-                            if ui
-                                .add_enabled(
-                                    playing && has_selection && on_hidden,
-                                    egui::Button::new(egui::RichText::new("👁").size(36.0))
-                                        .min_size(egui::vec2(64.0, 64.0)),
-                                )
-                                .clicked()
-                            {
-                                if let Some((x, y)) = self.selected_cell.take() {
-                                    self.game.reveal(x, y);
+                            if playing {
+                                if ui
+                                    .add_enabled(
+                                        has_selection && on_hidden,
+                                        egui::Button::new(egui::RichText::new("👁").size(36.0))
+                                            .min_size(egui::vec2(64.0, 64.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some((x, y)) = self.selected_cell.take() {
+                                        self.game.reveal(x, y);
+                                    }
                                 }
+                            } else {
+                                let (icon, color) = match self.game.status {
+                                    GameStatus::Won => ("🎉", egui::Color32::GREEN),
+                                    GameStatus::Lost => ("💥", egui::Color32::RED),
+                                    GameStatus::Playing => unreachable!(),
+                                };
+                                let space = (ui.available_height() - 48.0).max(0.0) / 2.0;
+                                ui.add_space(space);
+                                ui.colored_label(color, egui::RichText::new(icon).size(36.0));
                             }
                         });
 
                         columns[3].with_layout(center, |ui| {
-                            if ui
-                                .add_enabled(
-                                    playing && has_selection,
-                                    egui::Button::new(egui::RichText::new("🚩").size(36.0))
-                                        .min_size(egui::vec2(64.0, 64.0)),
-                                )
-                                .clicked()
+                            if playing
+                                && ui
+                                    .add_enabled(
+                                        has_selection,
+                                        egui::Button::new(egui::RichText::new("🚩").size(36.0))
+                                            .min_size(egui::vec2(64.0, 64.0)),
+                                    )
+                                    .clicked()
                             {
                                 if let Some((x, y)) = self.selected_cell {
                                     if on_flagged {
@@ -170,27 +413,60 @@ fn run() {
                         });
 
                         columns[4].with_layout(center, |ui| {
-                            if self.question_marks {
-                                if ui
+                            if playing
+                                && self.question_marks
+                                && ui
                                     .add_enabled(
-                                        playing && has_selection,
+                                        has_selection,
                                         egui::Button::new(egui::RichText::new("❓").size(36.0))
                                             .min_size(egui::vec2(64.0, 64.0)),
                                     )
                                     .clicked()
-                                {
-                                    if let Some((x, y)) = self.selected_cell {
-                                        if on_marked {
-                                            self.game.clear_marker(x, y);
-                                        } else {
-                                            self.game.mark(x, y);
-                                        }
+                            {
+                                if let Some((x, y)) = self.selected_cell {
+                                    if on_marked {
+                                        self.game.clear_marker(x, y);
+                                    } else {
+                                        self.game.mark(x, y);
                                     }
                                 }
+                            }
+                            if !playing
+                                && ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("\u{2934}").size(36.0),
+                                        )
+                                        .min_size(egui::vec2(64.0, 64.0)),
+                                    )
+                                    .clicked()
+                            {
+                                self.start_share_capture();
                             }
                         });
                     });
                 });
+        }
+
+        fn reset_share_state(&mut self) {
+            self.share_state = ShareState::Idle;
+            self.capture_board_rect = None;
+        }
+
+        fn start_share_capture(&mut self) {
+            let restore_scene = self.scene_rect.unwrap_or_else(|| {
+                let board_size = egui::vec2(
+                    self.game.width as f32 * Self::MOBILE_CELL_SIZE,
+                    self.game.height as f32 * Self::MOBILE_CELL_SIZE,
+                );
+                egui::Rect::from_min_size(egui::Pos2::ZERO, board_size)
+            });
+            self.share_state = ShareState::Capture {
+                restore_scene,
+                wait_frames: Self::SCREENSHOT_TIMEOUT_FRAMES,
+                screenshot_requested: false,
+            };
+            self.capture_board_rect = None;
         }
 
         fn show_difficulty_select(&mut self, ui: &mut egui::Ui, close_on_select: bool) {
@@ -204,6 +480,8 @@ fn run() {
                     self.game = MinesweeperGame::new(w, h, m);
                     self.selected_cell = None;
                     self.scene_rect = None;
+                    self.reset_share_state();
+
                     if close_on_select {
                         ui.close();
                     }
@@ -272,6 +550,8 @@ fn run() {
                             self.game.reset();
                             self.selected_cell = None;
                             self.scene_rect = None;
+                            self.reset_share_state();
+
                             self.show_menu = false;
                         }
                         ui.visuals_mut().button_frame = prev;
@@ -291,6 +571,8 @@ fn run() {
                             self.game = MinesweeperGame::new(w, h, m);
                             self.selected_cell = None;
                             self.scene_rect = None;
+                            self.reset_share_state();
+
                             self.show_menu = false;
                         }
                     }
@@ -347,6 +629,7 @@ fn run() {
                                         self.game.reset();
                                         self.selected_cell = None;
                                         self.scene_rect = None;
+                                        self.reset_share_state();
                                     }
                                 },
                             );
@@ -368,18 +651,35 @@ fn run() {
         fn mobile_ui(&mut self, ui: &mut egui::Ui) {
             ui.spacing_mut().interact_size.y = 64.0;
 
-            self.show_action_bar(ui);
+            let capturing = matches!(self.share_state, ShareState::Capture { .. });
+
+            if !capturing {
+                self.show_action_bar(ui);
+            }
 
             let board_size = egui::vec2(
                 self.game.width as f32 * Self::MOBILE_CELL_SIZE,
                 self.game.height as f32 * Self::MOBILE_CELL_SIZE,
             );
+
+            if capturing {
+                let full_board_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, board_size);
+                self.scene_rect = Some(full_board_rect);
+            }
+
             let mut scene_rect = self
                 .scene_rect
                 .unwrap_or_else(|| egui::Rect::from_min_size(egui::Pos2::ZERO, board_size));
 
+            let outer_rect =
+                egui::Rect::from_min_size(ui.min_rect().min, ui.available_size_before_wrap());
+
             egui::containers::Scene::new()
-                .zoom_range(0.25..=4.0)
+                .zoom_range(if capturing {
+                    0.0..=f32::INFINITY
+                } else {
+                    0.25..=4.0
+                })
                 .max_inner_size(board_size)
                 .show(ui, &mut scene_rect, |ui| {
                     ui.add(
@@ -392,7 +692,29 @@ fn run() {
                     );
                 });
 
-            self.scene_rect = Some(scene_rect);
+            if let ShareState::Capture {
+                restore_scene,
+                ref mut screenshot_requested,
+                ..
+            } = self.share_state
+            {
+                let dpr = ui
+                    .ctx()
+                    .input(|i| i.viewport().native_pixels_per_point)
+                    .unwrap_or(1.0);
+                self.capture_board_rect = Some(geometry::board_rect_in_screen_pixels(
+                    outer_rect, board_size, dpr,
+                ));
+                if !*screenshot_requested {
+                    ui.send_viewport_cmd(egui::ViewportCommand::Screenshot(
+                        egui::UserData::default(),
+                    ));
+                    *screenshot_requested = true;
+                }
+                self.scene_rect = Some(restore_scene);
+            } else {
+                self.scene_rect = Some(scene_rect);
+            }
         }
     }
 
