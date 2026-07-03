@@ -2,65 +2,6 @@
 //   - wasm32: a #[wasm_bindgen(start)] that calls this function body
 //   - native: a main with `dist` / `start` sub-commands that build the wasm
 //             bundle and serve it via a local dev server
-#[allow(dead_code)]
-mod geometry {
-    /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
-    fn fit_to_rect_in_scene(
-        rect_in_global: egui::Rect,
-        rect_in_scene: egui::Rect,
-        zoom_range: egui::Rangef,
-    ) -> egui::emath::TSTransform {
-        let scale = rect_in_global.size() / rect_in_scene.size();
-        let scale = scale.min_elem();
-        let scale = zoom_range.clamp(scale);
-        let center_in_global = rect_in_global.center().to_vec2();
-        let center_scene = rect_in_scene.center().to_vec2();
-        egui::emath::TSTransform::from_translation(center_in_global - scale * center_scene)
-            * egui::emath::TSTransform::from_scaling(scale)
-    }
-
-    /// Computes the board's on-screen pixel rectangle when the scene is reset to show the full board.
-    pub fn board_rect_in_screen_pixels(
-        outer_rect: egui::Rect,
-        board_size: egui::Vec2,
-        pixels_per_point: f32,
-    ) -> egui::Rect {
-        let scene_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, board_size);
-        let zoom_range = egui::Rangef::new(0.0, f32::INFINITY);
-        let transform = fit_to_rect_in_scene(outer_rect, scene_rect, zoom_range);
-        let board_global = transform * scene_rect;
-        egui::Rect::from_min_max(
-            (board_global.min * pixels_per_point).round(),
-            (board_global.max * pixels_per_point).round(),
-        )
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn fit_to_rect_in_scene_centers_board() {
-            let global = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0));
-            let scene = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(50.0, 50.0));
-            let transform =
-                fit_to_rect_in_scene(global, scene, egui::Rangef::new(0.0, f32::INFINITY));
-            let transformed = transform * scene;
-            assert!((transformed.center() - global.center()).length() < 0.001);
-            assert!((transformed.size() - egui::vec2(100.0, 100.0)).length() < 0.001);
-        }
-
-        #[test]
-        fn board_rect_in_screen_pixels_matches_scale() {
-            let outer = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0));
-            let board = egui::vec2(50.0, 50.0);
-            let rect = board_rect_in_screen_pixels(outer, board, 2.0);
-            assert_eq!(rect.min, egui::Pos2::new(0.0, 0.0));
-            assert_eq!(rect.max, egui::Pos2::new(200.0, 200.0));
-        }
-    }
-}
-
 #[xtask_wasm::run_example(assets_dir = "assets")]
 fn run() {
     use eframe::egui;
@@ -207,6 +148,37 @@ fn run() {
         const MOBILE_CELL_SIZE: f32 = 34.0;
         const MENU_FONT_SIZE: f32 = 24.0;
         const SCREENSHOT_TIMEOUT_FRAMES: u8 = 5;
+
+        /// Replicates the transform that `egui::Scene` uses to fit a scene rect into the screen.
+        fn fit_to_rect_in_scene(
+            rect_in_global: egui::Rect,
+            rect_in_scene: egui::Rect,
+            zoom_range: egui::Rangef,
+        ) -> egui::emath::TSTransform {
+            let scale = rect_in_global.size() / rect_in_scene.size();
+            let scale = scale.min_elem();
+            let scale = zoom_range.clamp(scale);
+            let center_in_global = rect_in_global.center().to_vec2();
+            let center_scene = rect_in_scene.center().to_vec2();
+            egui::emath::TSTransform::from_translation(center_in_global - scale * center_scene)
+                * egui::emath::TSTransform::from_scaling(scale)
+        }
+
+        /// Computes the board's on-screen pixel rectangle when the scene is reset to show the full board.
+        fn board_rect_in_screen_pixels(
+            outer_rect: egui::Rect,
+            board_size: egui::Vec2,
+            pixels_per_point: f32,
+        ) -> egui::Rect {
+            let scene_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, board_size);
+            let zoom_range = egui::Rangef::new(0.0, f32::INFINITY);
+            let transform = Self::fit_to_rect_in_scene(outer_rect, scene_rect, zoom_range);
+            let board_global = transform * scene_rect;
+            egui::Rect::from_min_max(
+                (board_global.min * pixels_per_point).round(),
+                (board_global.max * pixels_per_point).round(),
+            )
+        }
 
         fn crop_and_encode_png(
             color_image: &egui::ColorImage,
@@ -702,7 +674,7 @@ fn run() {
                     .ctx()
                     .input(|i| i.viewport().native_pixels_per_point)
                     .unwrap_or(1.0);
-                self.capture_board_rect = Some(geometry::board_rect_in_screen_pixels(
+                self.capture_board_rect = Some(Self::board_rect_in_screen_pixels(
                     outer_rect, board_size, dpr,
                 ));
                 if !*screenshot_requested {
