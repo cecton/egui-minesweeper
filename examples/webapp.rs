@@ -76,11 +76,11 @@ fn run() {
 
             if is_mobile {
                 self.mobile_ui(ui);
+                self.show_menu_modal(ui.ctx());
             } else {
                 self.desktop_ui(ui);
+                self.show_menu = false;
             }
-
-            self.show_menu_modal(ui.ctx());
 
             // Handle screenshot result and capture timeout.
             let mut screenshot = None;

@@ -7,6 +7,10 @@ Versioning](semver).
 
 ## [Unreleased]
 
+### Fixed
+
+- The mobile hamburger menu no longer stays open if you resize/rotate from mobile to a desktop-width viewport while it's open — it's now only shown while in mobile mode, and closed automatically when switching back to desktop.
+
 ### Changed
 
 - The mobile/touch-device detection now queries `matchMedia("(pointer: coarse)")` once at startup and caches the result, instead of re-querying it (a wasm/JS FFI call) on every frame.
