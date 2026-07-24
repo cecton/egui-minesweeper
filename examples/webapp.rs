@@ -616,7 +616,7 @@ fn run() {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button("New Game").clicked() {
+                                    if ui.button("🔄 New Game").clicked() {
                                         self.game.reset();
                                         self.selected_cell = None;
                                         self.scene_rect = None;
