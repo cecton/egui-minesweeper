@@ -529,7 +529,7 @@ fn run() {
                 )
                 .backdrop_color(egui::Color32::from_black_alpha(128))
                 .show(ctx, |ui| {
-                    ui.set_min_width(vp_width - 32.0);
+                    ui.set_min_width((vp_width - 32.0).max(0.0));
                     ui.spacing_mut().interact_size.y = 36.0;
                     {
                         let prev = ui.visuals().button_frame;

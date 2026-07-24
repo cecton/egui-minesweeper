@@ -10,6 +10,7 @@ Versioning](semver).
 ### Fixed
 
 - The mobile hamburger menu no longer stays open if you resize/rotate from mobile to a desktop-width viewport while it's open — it's now only shown while in mobile mode, and closed automatically when switching back to desktop.
+- Clamped the hamburger menu's minimum width to zero so it can't go negative on a very narrow viewport.
 
 ### Changed
 
