@@ -61,6 +61,7 @@ fn run() {
         show_menu: bool,
         share_state: ShareState,
         capture_board_rect: Option<egui::Rect>,
+        touch_device: bool,
     }
 
     impl eframe::App for MinesweeperApp {
@@ -69,7 +70,7 @@ fn run() {
             ui.painter()
                 .rect_filled(bg, egui::CornerRadius::ZERO, ui.visuals().panel_fill);
 
-            let is_mobile = Self::is_mobile(ui);
+            let is_mobile = self.is_mobile(ui);
 
             self.show_top_bar(ui, is_mobile);
 
@@ -285,6 +286,11 @@ fn run() {
                 .unwrap_or(Preset::Beginner);
             let (w, h, m) = selected_preset.dims();
 
+            let touch_device = web_sys::window()
+                .and_then(|w| w.match_media("(pointer: coarse)").ok())
+                .flatten()
+                .is_some_and(|mql| mql.matches());
+
             Self {
                 game: MinesweeperGame::new(w, h, m),
                 selected_preset,
@@ -296,17 +302,19 @@ fn run() {
                 show_menu: false,
                 share_state: ShareState::Idle,
                 capture_board_rect: None,
+                touch_device,
             }
         }
 
-        fn is_mobile(ui: &egui::Ui) -> bool {
+        /// Narrow viewport or a coarse (touch) pointer: switches the app to
+        /// the panning, toolbar-driven mobile layout instead of the
+        /// fills-the-window desktop one. Pointer coarseness is queried once
+        /// at startup (a wasm/JS FFI call) and cached, since it can't
+        /// realistically change mid-session and re-checking it every frame
+        /// would be wasted work.
+        fn is_mobile(&self, ui: &egui::Ui) -> bool {
             let content = ui.ctx().content_rect();
-            let width_small = content.width() < 900.0;
-            let touch_device = web_sys::window()
-                .and_then(|w| w.match_media("(pointer: coarse)").ok())
-                .flatten()
-                .is_some_and(|mql| mql.matches());
-            width_small || touch_device
+            content.width() < 900.0 || self.touch_device
         }
 
         fn show_action_bar(&mut self, ui: &mut egui::Ui) {

@@ -7,6 +7,10 @@ Versioning](semver).
 
 ## [Unreleased]
 
+### Changed
+
+- The mobile/touch-device detection now queries `matchMedia("(pointer: coarse)")` once at startup and caches the result, instead of re-querying it (a wasm/JS FFI call) on every frame.
+
 ## [0.1.6] - 2026-07-04
 
 ### Added
