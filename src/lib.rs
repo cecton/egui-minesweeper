@@ -357,6 +357,18 @@ impl<'a> MinesweeperWidget<'a> {
     }
 }
 
+/// The cell size (in logical pixels) that fits `game`'s board into
+/// `available` space — the same auto-sizing formula [`MinesweeperWidget`]
+/// uses internally when no explicit `cell_size` is set. Lets a caller
+/// pre-compute that fit (e.g. to size a `Scene` before laying the widget
+/// out inside it) instead of duplicating the formula.
+pub fn fit_cell_size(game: &MinesweeperGame, available: Vec2, show_labels: bool) -> f32 {
+    let label_cells = if show_labels { 1.0 } else { 0.0 };
+    let by_width = available.x / (game.width as f32 + label_cells);
+    let by_height = available.y / (game.height as f32 + label_cells);
+    by_width.min(by_height).max(1.0)
+}
+
 fn column_label(x: usize) -> String {
     let mut n = x + 1;
     let mut s = String::new();
@@ -485,12 +497,9 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32, v
 impl Widget for MinesweeperWidget<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let label_cells = if self.show_labels { 1.0 } else { 0.0 };
-        let cell_size = self.cell_size.unwrap_or_else(|| {
-            let available = ui.available_size();
-            let by_width = available.x / (self.game.width as f32 + label_cells);
-            let by_height = available.y / (self.game.height as f32 + label_cells);
-            by_width.min(by_height).max(1.0)
-        });
+        let cell_size = self
+            .cell_size
+            .unwrap_or_else(|| fit_cell_size(self.game, ui.available_size(), self.show_labels));
 
         let mut selected_cell = self.selected_cell;
 

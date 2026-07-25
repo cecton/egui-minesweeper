@@ -6,7 +6,7 @@
 fn run() {
     use eframe::egui;
     use egui_minesweeper::{
-        CellState, GameStatus, InteractionMode, MinesweeperGame, MinesweeperWidget,
+        fit_cell_size, CellState, GameStatus, InteractionMode, MinesweeperGame, MinesweeperWidget,
     };
     use serde::{Deserialize, Serialize};
     use xtask_wasm::wasm_bindgen::JsCast as _;
@@ -57,6 +57,7 @@ fn run() {
         show_labels: bool,
         selected_cell: Option<(usize, usize)>,
         scene_rect: Option<egui::Rect>,
+        mobile_cell_size: Option<f32>,
         prev_status: GameStatus,
         show_menu: bool,
         share_state: ShareState,
@@ -136,7 +137,7 @@ fn run() {
     }
 
     impl MinesweeperApp {
-        const MOBILE_CELL_SIZE: f32 = 34.0;
+        const MOBILE_MIN_CELL_SIZE: f32 = 28.0;
         const MENU_FONT_SIZE: f32 = 24.0;
         const SCREENSHOT_TIMEOUT_FRAMES: u8 = 5;
 
@@ -298,6 +299,7 @@ fn run() {
                 show_labels: false,
                 selected_cell: None,
                 scene_rect: None,
+                mobile_cell_size: None,
                 prev_status: GameStatus::Playing,
                 show_menu: false,
                 share_state: ShareState::Idle,
@@ -321,7 +323,7 @@ fn run() {
             egui::Panel::bottom("action_bar")
                 .resizable(false)
                 .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 4)))
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     let playing = self.game.status == GameStatus::Playing;
                     let (has_selection, on_hidden, on_flagged, on_marked) = if playing {
                         match self.selected_cell {
@@ -446,9 +448,10 @@ fn run() {
 
         fn start_share_capture(&mut self) {
             let restore_scene = self.scene_rect.unwrap_or_else(|| {
+                let cell_size = self.mobile_cell_size.unwrap_or(Self::MOBILE_MIN_CELL_SIZE);
                 let board_size = egui::vec2(
-                    self.game.width as f32 * Self::MOBILE_CELL_SIZE,
-                    self.game.height as f32 * Self::MOBILE_CELL_SIZE,
+                    self.game.width as f32 * cell_size,
+                    self.game.height as f32 * cell_size,
                 );
                 egui::Rect::from_min_size(egui::Pos2::ZERO, board_size)
             });
@@ -599,7 +602,7 @@ fn run() {
             } else {
                 egui::Panel::top("top_bar")
                     .frame(egui::Frame::new().inner_margin(4.0))
-                    .show_inside(ui, |ui| {
+                    .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             ui.visuals_mut().button_frame = false;
                             ui.add_space(8.0);
@@ -639,6 +642,34 @@ fn run() {
             });
         }
 
+        /// The cell size to render the board at on mobile: fit to the
+        /// available space (the same formula `MinesweeperWidget` uses
+        /// internally on desktop), floored at a touch-friendly minimum.
+        /// Deliberately uncapped on the high end — see the identical helper
+        /// in egui-numberlink's webapp.rs for why: `Scene`'s initial fit
+        /// unconditionally scales `board_size` to match the outer rect, so
+        /// an under-sized `cell_size` just gets stretched back up by Scene
+        /// instead of producing a smaller board, which blurs pre-rasterized
+        /// text/fixed-width strokes exactly like an over-sized one being
+        /// shrunk fades them. Resets `scene_rect` whenever the computed
+        /// size changes (a live viewport resize — board-size changes
+        /// already reset it via `show_difficulty_select`/the New Game
+        /// handlers) so Scene's framing stays consistent with the new
+        /// footprint.
+        ///
+        /// Not used during screenshot capture — see the `capturing` branch
+        /// in `mobile_ui`, which computes a size without going through (or
+        /// disturbing) this cache.
+        fn mobile_cell_size(&mut self, available: egui::Vec2) -> f32 {
+            let fitted = fit_cell_size(&self.game, available, self.show_labels)
+                .max(Self::MOBILE_MIN_CELL_SIZE);
+            if self.mobile_cell_size != Some(fitted) {
+                self.mobile_cell_size = Some(fitted);
+                self.scene_rect = None;
+            }
+            fitted
+        }
+
         fn mobile_ui(&mut self, ui: &mut egui::Ui) {
             ui.spacing_mut().interact_size.y = 64.0;
 
@@ -648,9 +679,22 @@ fn run() {
                 self.show_action_bar(ui);
             }
 
+            let cell_size = if capturing {
+                // The action bar is skipped above during capture, so
+                // `available_size()` is temporarily larger than normal —
+                // going through the cached `mobile_cell_size` here would
+                // read as a real resize and wipe `restore_scene` (the
+                // pan/zoom position captured before this started, restored
+                // once capture ends) via its change-triggered reset.
+                fit_cell_size(&self.game, ui.available_size(), self.show_labels)
+                    .max(Self::MOBILE_MIN_CELL_SIZE)
+            } else {
+                self.mobile_cell_size(ui.available_size())
+            };
+
             let board_size = egui::vec2(
-                self.game.width as f32 * Self::MOBILE_CELL_SIZE,
-                self.game.height as f32 * Self::MOBILE_CELL_SIZE,
+                self.game.width as f32 * cell_size,
+                self.game.height as f32 * cell_size,
             );
 
             if capturing {
@@ -675,7 +719,7 @@ fn run() {
                 .show(ui, &mut scene_rect, |ui| {
                     ui.add(
                         MinesweeperWidget::new(&mut self.game)
-                            .cell_size(Self::MOBILE_CELL_SIZE)
+                            .cell_size(cell_size)
                             .interaction_mode(InteractionMode::SelectOnly)
                             .selected_cell(&mut self.selected_cell)
                             .question_marks(self.question_marks)
