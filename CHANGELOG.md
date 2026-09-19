@@ -7,14 +7,23 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-19
+
+### Added
+
+- Refresh icon on the new game button.
+
 ### Fixed
 
 - The mobile hamburger menu no longer stays open if you resize/rotate from mobile to a desktop-width viewport while it's open — it's now only shown while in mobile mode, and closed automatically when switching back to desktop.
 - Clamped the hamburger menu's minimum width to zero so it can't go negative on a very narrow viewport.
+- Adapted the mobile cell size to the board size to avoid a blurry `Scene` downscale.
+- The hamburger menu modal is now gated on mobile mode.
 
 ### Changed
 
 - The mobile/touch-device detection now queries `matchMedia("(pointer: coarse)")` once at startup and caches the result, instead of re-querying it (a wasm/JS FFI call) on every frame.
+- Updated egui to 0.36.
 
 ## [0.1.6] - 2026-07-04
 
