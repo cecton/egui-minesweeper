@@ -7,6 +7,16 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-24
+
+### Added
+
+- Question marks are now drawn as a blue flag with a question mark on its side, making the marked state visually distinct from both the red flag and the revealed number cells.
+
+### Fixed
+
+- Question marks no longer block revealing: clicking a question-marked cell reveals it, and the flood-fill reveals over question-marked cells, matching classic Minesweeper behavior. Only flags protect cells from accidental reveals.
+
 ## [0.3.0] - 2026-09-19
 
 ### Added
@@ -119,7 +129,9 @@ Versioning](semver).
 
 [keep_a_changelog]: https://keepachangelog.com/en/1.1.0
 [semver]: https://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/cecton/egui-minesweeper/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/cecton/egui-minesweeper/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.4.0
+[0.3.0]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.3.0
 [0.1.6]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.6
 [0.1.5]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.5
 [0.1.4]: https://github.com/cecton/egui-minesweeper/releases/tag/v0.1.4
