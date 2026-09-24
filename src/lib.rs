@@ -209,7 +209,12 @@ impl MinesweeperGame {
 
         while let Some((cx, cy)) = stack.pop() {
             let idx = self.idx(cx, cy);
-            if self.cells[idx].state != CellState::Hidden {
+            // Question marks (`Marked`) do not block the flood-fill, but
+            // flags do, protecting the player from accidental reveals.
+            if matches!(
+                self.cells[idx].state,
+                CellState::Revealed | CellState::Flagged
+            ) {
                 continue;
             }
             self.cells[idx].state = CellState::Revealed;
@@ -677,4 +682,33 @@ fn draw_flag(
         flag_color,
         Stroke::NONE,
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reveal_reveals_marked_cell() {
+        let mut game = MinesweeperGame::new(3, 3, 1);
+        game.mark(1, 1);
+        assert_eq!(game.cells[game.idx(1, 1)].state, CellState::Marked);
+
+        game.reveal(1, 1);
+
+        assert_eq!(game.cells[game.idx(1, 1)].state, CellState::Revealed);
+    }
+
+    #[test]
+    fn flood_fill_reveals_marked_cells() {
+        // Zero mines: every cell is a 0-cell, so revealing the corner
+        // flood-fills the whole board — including the marked cell.
+        let mut game = MinesweeperGame::new(3, 3, 0);
+        game.mark(2, 2);
+
+        game.reveal(0, 0);
+
+        assert_eq!(game.cells[game.idx(2, 2)].state, CellState::Revealed);
+        assert_eq!(game.status, GameStatus::Won);
+    }
 }
