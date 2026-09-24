@@ -432,11 +432,18 @@ fn draw_cell(painter: &egui::Painter, rect: Rect, cell: &Cell, cell_size: f32, v
             } else {
                 Color32::from_rgb(0, 0, 255)
             };
+            let pole_color = visuals.widgets.noninteractive.fg_stroke.color;
+            // Blue flag shifted left with a question mark on its side.
+            let flag_inner = inner.translate(Vec2::new(-cell_size * 0.16, 0.0));
+            draw_flag(painter, flag_inner, cell_size, mark_color, pole_color);
             painter.text(
-                rect.center(),
+                Pos2::new(
+                    inner.center().x + cell_size * 0.24,
+                    inner.center().y + cell_size * 0.16,
+                ),
                 Align2::CENTER_CENTER,
                 "?",
-                FontId::monospace(cell_size * 0.58),
+                FontId::monospace(cell_size * 0.4),
                 mark_color,
             );
         }
