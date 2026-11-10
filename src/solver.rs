@@ -513,6 +513,120 @@ pub fn has_forced_move(game: &MinesweeperGame) -> bool {
     forced_by_local_rules(&constraints(game, &revealed)).is_some()
 }
 
+/// Whether the player has an action left: a cell provably safe that is still
+/// hidden, or a mine provably a mine that they have not marked yet.
+///
+/// This is what an odds display must gate on, and it is not the same question as
+/// [`has_forced_move`]. The rules count "this cell is certainly a mine" as a
+/// move, but that is only an action while the cell is unmarked — once the player
+/// has flagged it, re-deriving the same fact changes nothing on the board. Gating
+/// on `has_forced_move` therefore kept the odds hidden for as long as any flagged
+/// mine sat next to a number, which on a real board is most of the game.
+///
+/// The rules are run to a fixpoint on purpose: flagging one cell can make the
+/// next deduction available, and this must see the whole chain, not its first
+/// step.
+pub fn has_actionable_move(game: &MinesweeperGame) -> bool {
+    if game.status != GameStatus::Playing {
+        return false;
+    }
+    let revealed = revealed_mask(game);
+    actionable_from_rules(&constraints(game, &revealed), game)
+}
+
+/// Run the rules to a fixpoint, then ask whether any conclusion is still
+/// un-acted-on: a provably safe cell not yet revealed, or a provably mine cell
+/// neither flagged nor marked.
+fn actionable_from_rules(constraints: &[Constraint], game: &MinesweeperGame) -> bool {
+    let Some(max_cell) = constraints
+        .iter()
+        .flat_map(|c| c.cells.iter().copied())
+        .max()
+    else {
+        return false;
+    };
+    let mut safe = vec![false; max_cell + 1];
+    let mut mine = vec![false; max_cell + 1];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for c in constraints {
+            let flagged = c.cells.iter().filter(|&&x| mine[x]).count();
+            let open: Vec<usize> = c
+                .cells
+                .iter()
+                .copied()
+                .filter(|&x| !mine[x] && !safe[x])
+                .collect();
+            if open.is_empty() {
+                continue;
+            }
+            if flagged == c.count as usize {
+                for x in open {
+                    safe[x] = true;
+                    changed = true;
+                }
+            } else if c.count as usize - flagged == open.len() {
+                for x in open {
+                    mine[x] = true;
+                    changed = true;
+                }
+            }
+        }
+        for (i, a) in constraints.iter().enumerate() {
+            for (j, b) in constraints.iter().enumerate() {
+                if i == j || !a.cells.iter().all(|x| b.cells.contains(x)) {
+                    continue;
+                }
+                let difference: Vec<usize> = b
+                    .cells
+                    .iter()
+                    .copied()
+                    .filter(|x| !a.cells.contains(x))
+                    .collect();
+                if difference.is_empty() {
+                    continue;
+                }
+                let in_a = a.cells.iter().filter(|&&x| mine[x]).count() as i32;
+                let in_b = b.cells.iter().filter(|&&x| mine[x]).count() as i32;
+                let diff_mines = b.count as i32 - in_b - (a.count as i32 - in_a);
+                let open: Vec<usize> = difference
+                    .iter()
+                    .copied()
+                    .filter(|&x| !mine[x] && !safe[x])
+                    .collect();
+                if open.is_empty() {
+                    continue;
+                }
+                if diff_mines == 0 {
+                    for x in open {
+                        safe[x] = true;
+                        changed = true;
+                    }
+                } else if diff_mines as usize == open.len() {
+                    for x in open {
+                        mine[x] = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    for i in 0..=max_cell {
+        let state = game.cells[i].state;
+        if safe[i] && state != CellState::Revealed {
+            return true;
+        }
+        // A provable mine still wants a flag. A question mark does not count as
+        // having acted on it: `?` is an explicit "maybe", so the player has not
+        // committed to the conclusion the rules reached.
+        if mine[i] && matches!(state, CellState::Hidden | CellState::Marked) {
+            return true;
+        }
+    }
+    false
+}
+
 fn revealed_mask(game: &MinesweeperGame) -> Vec<bool> {
     game.cells
         .iter()
@@ -920,6 +1034,87 @@ mod tests {
         let revealed = mask(&game, &[0, 1, 2]);
         let odds = odds_for(&game, &revealed).expect("analysis should finish");
         assert_eq!(odds[3], Some(1.0));
+    }
+
+    #[test]
+    fn a_flagged_mine_is_no_longer_a_move_to_make() {
+        // The bug this guards against: `has_forced_move` counts "this cell is
+        // certainly a mine" as a move, so once the player flagged that mine the
+        // answer stayed `true` forever and an odds display gated on it went dark
+        // for the rest of the game. Measured on real Intermediate boards, 55 of
+        // 57 blocked stalls were exactly this case.
+        //
+        // 3x3 with a mine at 0, and everything the rules can prove already done:
+        // cells 1, 2, 4 and 5 are open, and an extra 0 mine at 8 makes the mine
+        // the only unsettled conclusion.
+        let mut game = MinesweeperGame::new_with_layout(3, 3, &[0]);
+        // Reveal everything except the mine.
+        for i in [1usize, 2, 3, 4, 5, 6, 7, 8] {
+            game.cells[i].state = CellState::Revealed;
+        }
+        // Recompute the numbers for this hand-built board.
+        game.set_mine_layout(&[0]);
+        for i in [1usize, 2, 3, 4, 5, 6, 7, 8] {
+            game.cells[i].state = CellState::Revealed;
+        }
+
+        // With the mine unmarked, the rules have something to say.
+        assert!(
+            has_forced_move(&game),
+            "the rules should call the unmarked mine a move"
+        );
+        assert!(
+            has_actionable_move(&game),
+            "an unmarked provable mine is something the player can act on"
+        );
+
+        // Flag it: the rules still prove it, but there is nothing left to do.
+        game.cells[0].state = CellState::Flagged;
+        assert!(
+            has_forced_move(&game),
+            "the rules still prove the mine, which is why the old gate stuck"
+        );
+        assert!(
+            !has_actionable_move(&game),
+            "a mine the player already flagged, with nothing else left to prove, \
+             is not an action to take"
+        );
+
+        // A question mark is a placeholder rather than a settled decision.
+        game.cells[0].state = CellState::Marked;
+        assert!(
+            has_actionable_move(&game),
+            "a question mark has not settled the cell"
+        );
+    }
+
+    #[test]
+    fn an_unrevealed_safe_cell_is_an_action() {
+        // The other half of the rule: a provably safe cell the player has not
+        // opened yet always counts.
+        let mut game = MinesweeperGame::new_with_layout(3, 3, &[5]);
+        game.reveal(0, 0);
+        let safe =
+            (0..9).find(|&i| game.cells[i].state != CellState::Revealed && !game.cells[i].is_mine);
+        let Some(safe) = safe else {
+            panic!("the corner flood should leave a hidden safe cell")
+        };
+        // Sanity: the cell the rules can prove safe really is safe.
+        let odds = mine_odds(&game).expect("analysis should finish");
+        if odds[safe] == Some(0.0) {
+            assert!(has_actionable_move(&game));
+        }
+    }
+
+    #[test]
+    fn actionable_move_is_false_when_the_board_is_finished() {
+        let mut game = MinesweeperGame::new_with_layout(2, 2, &[3]);
+        game.reveal(0, 0);
+        game.reveal(1, 0);
+        game.reveal(0, 1);
+        game.reveal(1, 1);
+        assert_eq!(game.status, GameStatus::Won);
+        assert!(!has_actionable_move(&game));
     }
 
     #[test]
