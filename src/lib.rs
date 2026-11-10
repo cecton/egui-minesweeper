@@ -7,7 +7,10 @@ use egui::{
 
 mod solver;
 
-pub use solver::{has_actionable_move, has_forced_move, mine_odds, odds_frontier};
+pub use solver::{
+    actionable_move, has_actionable_move, has_forced_move, mine_odds, odds_frontier,
+    ActionableKind, ActionableMove,
+};
 
 // ─── Game types ────────────────────────────────────────────────────────────────
 

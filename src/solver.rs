@@ -499,6 +499,24 @@ pub fn odds_frontier(game: &MinesweeperGame) -> Option<Vec<bool>> {
     Some(frontier)
 }
 
+/// What the rules just worked out, and whether the player has acted on it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActionableMove {
+    /// Index of the cell, row-major.
+    pub cell: usize,
+    /// What should be done with it.
+    pub kind: ActionableKind,
+}
+
+/// What an [`ActionableMove`] asks of the player.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionableKind {
+    /// The cell is provably safe and still hidden.
+    Reveal,
+    /// The cell is provably a mine and neither flagged nor marked.
+    Flag,
+}
+
 /// Whether ordinary local reasoning has a move available right now.
 ///
 /// This is the single-cell rule plus the subset rule behind the familiar 1-2-1
@@ -530,6 +548,18 @@ pub fn has_actionable_move(game: &MinesweeperGame) -> bool {
     if game.status != GameStatus::Playing {
         return false;
     }
+    actionable_move(game).is_some()
+}
+
+/// The conclusion the rules reach that the player has not acted on yet.
+///
+/// `None` means the board is stalled: nothing can be deduced, so the next step
+/// has to be a guess. This is the same question [`has_actionable_move`] answers,
+/// returned as the move itself so a diagnostic can say *what* is blocking.
+pub fn actionable_move(game: &MinesweeperGame) -> Option<ActionableMove> {
+    if game.status != GameStatus::Playing {
+        return None;
+    }
     let revealed = revealed_mask(game);
     actionable_from_rules(&constraints(game, &revealed), game)
 }
@@ -537,14 +567,14 @@ pub fn has_actionable_move(game: &MinesweeperGame) -> bool {
 /// Run the rules to a fixpoint, then ask whether any conclusion is still
 /// un-acted-on: a provably safe cell not yet revealed, or a provably mine cell
 /// neither flagged nor marked.
-fn actionable_from_rules(constraints: &[Constraint], game: &MinesweeperGame) -> bool {
-    let Some(max_cell) = constraints
+fn actionable_from_rules(
+    constraints: &[Constraint],
+    game: &MinesweeperGame,
+) -> Option<ActionableMove> {
+    let max_cell = constraints
         .iter()
         .flat_map(|c| c.cells.iter().copied())
-        .max()
-    else {
-        return false;
-    };
+        .max()?;
     let mut safe = vec![false; max_cell + 1];
     let mut mine = vec![false; max_cell + 1];
     let mut changed = true;
@@ -615,16 +645,22 @@ fn actionable_from_rules(constraints: &[Constraint], game: &MinesweeperGame) -> 
     for i in 0..=max_cell {
         let state = game.cells[i].state;
         if safe[i] && state != CellState::Revealed {
-            return true;
+            return Some(ActionableMove {
+                cell: i,
+                kind: ActionableKind::Reveal,
+            });
         }
         // A provable mine still wants a flag. A question mark does not count as
         // having acted on it: `?` is an explicit "maybe", so the player has not
         // committed to the conclusion the rules reached.
         if mine[i] && matches!(state, CellState::Hidden | CellState::Marked) {
-            return true;
+            return Some(ActionableMove {
+                cell: i,
+                kind: ActionableKind::Flag,
+            });
         }
     }
-    false
+    None
 }
 
 fn revealed_mask(game: &MinesweeperGame) -> Vec<bool> {

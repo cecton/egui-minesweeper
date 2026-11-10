@@ -9,6 +9,10 @@ Versioning](semver).
 
 ### Added
 
+- `actionable_move`, returning the conclusion the player has not acted on yet as a cell and
+  whether it wants revealing or flagging. `has_actionable_move` is a thin wrapper over it, so a
+  diagnostic can name which cell is holding the advice back rather than only knowing that
+  something is.
 - `has_actionable_move`, which asks whether the player still has something to *do*: a provably
   safe cell still hidden, or a provably-mine cell they have not flagged. This is the question an
   advice display should gate on, and it is not the same as `has_forced_move` — the rules count
