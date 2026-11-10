@@ -7,6 +7,26 @@ Versioning](semver).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-10
+
+### Added
+
+- `GenerationMode`, letting the layout be either uniformly random (the default, unchanged) or
+  guess free. `MinesweeperGame::new_with_mode` selects one; `MinesweeperGame::mode` reports it.
+  Guess-free boards are produced by drawing layouts until one can be cleared without ever
+  guessing, so the first click may take noticeably longer to answer on a large board.
+- `mine_odds`, the exact probability that each hidden cell holds a mine given the numbers on
+  show, accounting for the board's total mine count. Returns `None` when the analysis cannot
+  finish rather than an approximation.
+- `has_forced_move`, whether the familiar single-cell and subset deductions have anything left
+  to prove, so a caller can wait until guessing is truly the only option before helping.
+- `MinesweeperGame::revealed_fingerprint`, a value that changes exactly when a cell is revealed,
+  for caching expensive analysis across frames.
+- `odds_frontier`, the hidden cells that sit next to a revealed number — the ones an odds
+  display should annotate. Annotating every hidden cell would print the same board-wide
+  number across most of the board.
+- `MinesweeperWidget::badge`, drawing short text such as `"31%"` on hidden cells.
+
 ## [0.4.0] - 2026-09-24
 
 ### Added

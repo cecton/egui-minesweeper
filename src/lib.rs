@@ -5,6 +5,10 @@ use egui::{
     StrokeKind, Ui, Vec2, Visuals, Widget,
 };
 
+mod solver;
+
+pub use solver::{has_forced_move, mine_odds, odds_frontier};
+
 // ─── Game types ────────────────────────────────────────────────────────────────
 
 /// The visibility state of a single cell.
@@ -18,6 +22,27 @@ pub enum CellState {
     Flagged,
     /// A blue marker used only as a visual indicator (not counted as a flag).
     Marked,
+}
+
+/// How the layout is chosen when mines are finally placed.
+///
+/// The mode only affects *placement*. Everything else — the first click always
+/// being safe, the flood fill, flags — behaves the same in every mode.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum GenerationMode {
+    /// Uniformly random placement. Some boards cannot be finished without
+    /// guessing, which is what the traditional game does.
+    #[default]
+    Random,
+    /// Keep drawing layouts until one can be finished without ever guessing.
+    ///
+    /// "Without guessing" means solvable in principle, not by the tricks a
+    /// player knows: the proof may need reasoning across a dozen cells at once.
+    /// On a 30x16 board with 99 mines only about one layout in seven qualifies
+    /// and many of those are hard to read, so this mode is slowest and least
+    /// forgiving exactly where the board is largest. It accepts a pause on the
+    /// first click (~30 ms typical, a few hundred ms at worst) in exchange.
+    GuessFree,
 }
 
 /// A single cell on the Minesweeper board.
@@ -80,6 +105,8 @@ pub struct MinesweeperGame {
     pub cells: Vec<Cell>,
     /// Current game status.
     pub status: GameStatus,
+    /// How the layout is chosen on the first reveal.
+    mode: GenerationMode,
     initialized: bool,
 }
 
@@ -87,6 +114,11 @@ impl MinesweeperGame {
     /// Create a new game. Mines are placed on the first [`reveal`] call so
     /// the player can never lose on the very first click.
     pub fn new(width: usize, height: usize, mines: usize) -> Self {
+        Self::new_with_mode(width, height, mines, GenerationMode::default())
+    }
+
+    /// Create a new game whose layout is chosen according to `mode`.
+    pub fn new_with_mode(width: usize, height: usize, mines: usize, mode: GenerationMode) -> Self {
         assert!(width > 0 && height > 0);
         let mines = mines.min(width * height - 1);
         Self {
@@ -95,13 +127,32 @@ impl MinesweeperGame {
             mines,
             cells: vec![Cell::default(); width * height],
             status: GameStatus::Playing,
+            mode,
             initialized: false,
         }
     }
 
-    /// Reset to a fresh game with the same parameters.
+    /// The mode this game was created with.
+    pub fn mode(&self) -> GenerationMode {
+        self.mode
+    }
+
+    /// A value that changes exactly when a cell is revealed, so a caller that
+    /// redraws every frame can cache expensive analysis against it.
+    pub fn revealed_fingerprint(&self) -> u64 {
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for (i, cell) in self.cells.iter().enumerate() {
+            if cell.state == CellState::Revealed {
+                hash ^= i as u64 + 1;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        hash
+    }
+
+    /// Reset to a fresh game with the same parameters and mode.
     pub fn reset(&mut self) {
-        *self = Self::new(self.width, self.height, self.mines);
+        *self = Self::new_with_mode(self.width, self.height, self.mines, self.mode);
     }
 
     /// Number of flags the player has placed.
@@ -136,16 +187,30 @@ impl MinesweeperGame {
         out
     }
 
-    fn initialize(&mut self, safe_x: usize, safe_y: usize) {
-        let mut safe_zone = Vec::with_capacity(9);
+    /// Cells in the first click's 3x3 zone, where a mine may never be placed.
+    fn safe_zone(&self, safe_x: usize, safe_y: usize) -> Vec<usize> {
+        let mut zone = Vec::with_capacity(9);
         for dy in -1..=1 {
             for dx in -1..=1 {
                 let nx = safe_x as i32 + dx;
                 let ny = safe_y as i32 + dy;
                 if nx >= 0 && ny >= 0 && nx < self.width as i32 && ny < self.height as i32 {
-                    safe_zone.push((ny as usize) * self.width + (nx as usize));
+                    zone.push((ny as usize) * self.width + (nx as usize));
                 }
             }
+        }
+        zone
+    }
+
+    /// Place mines uniformly at random, avoiding `safe_zone`, and fill in the
+    /// adjacent counts.
+    ///
+    /// Leaves the board with no cell revealed, so a caller may inspect the
+    /// layout and throw it away.
+    fn scatter_mines(&mut self, safe_zone: &[usize]) {
+        for cell in &mut self.cells {
+            cell.is_mine = false;
+            cell.adjacent_mines = 0;
         }
 
         // Collect candidate positions and shuffle them with fastrand.
@@ -178,7 +243,32 @@ impl MinesweeperGame {
                 }
             }
         }
+    }
 
+    /// Place the layout, retrying while `mode` demands something the scattered
+    /// one does not have.
+    ///
+    /// `GuessFree` keeps the last layout it built if no attempt qualified, so a
+    /// pathological board degrades into an ordinary one rather than hanging.
+    fn initialize(&mut self, safe_x: usize, safe_y: usize) {
+        let zone = self.safe_zone(safe_x, safe_y);
+        let start = safe_y * self.width + safe_x;
+        // The first click reveals its whole zone immediately, so check
+        // solvability from that position rather than from the single cell.
+        self.scatter_mines(&zone);
+        if self.mode == GenerationMode::GuessFree {
+            let mut attempts = 0;
+            while !solver::guess_free_from(self, start) {
+                attempts += 1;
+                if attempts >= solver::MAX_GENERATION_ATTEMPTS {
+                    // Give up and keep this layout: an ordinary board is a much
+                    // better outcome than a hang, and the odds of getting here
+                    // are vanishingly small on the standard boards.
+                    break;
+                }
+                self.scatter_mines(&zone);
+            }
+        }
         self.initialized = true;
     }
 
@@ -295,6 +385,48 @@ impl MinesweeperGame {
 
         self.cells[idx].state = CellState::Hidden;
     }
+
+    /// Build a game from an explicit mine layout, for tests.
+    #[cfg(test)]
+    pub(crate) fn new_with_layout(width: usize, height: usize, mines: &[usize]) -> Self {
+        let mut game = Self::new(width, height, mines.len());
+        game.set_mine_layout(mines);
+        game
+    }
+
+    /// Overwrite the layout with explicit mine positions and recompute counts,
+    /// for tests. Marks the board initialized so `reveal` does not scatter a
+    /// fresh layout over it.
+    #[cfg(test)]
+    pub(crate) fn set_mine_layout(&mut self, mines: &[usize]) {
+        for cell in &mut self.cells {
+            cell.is_mine = false;
+            cell.adjacent_mines = 0;
+        }
+        for &pos in mines {
+            self.cells[pos].is_mine = true;
+        }
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if !self.cells[self.idx(x, y)].is_mine {
+                    let count = self
+                        .neighbors(x, y)
+                        .iter()
+                        .filter(|&&(nx, ny)| self.cells[self.idx(nx, ny)].is_mine)
+                        .count();
+                    let idx = self.idx(x, y);
+                    self.cells[idx].adjacent_mines = count as u8;
+                }
+            }
+        }
+        self.initialized = true;
+    }
+
+    /// Index of a cell, for tests.
+    #[cfg(test)]
+    pub(crate) fn index(&self, x: usize, y: usize) -> usize {
+        self.idx(x, y)
+    }
 }
 
 // ─── egui widget ───────────────────────────────────────────────────────────────
@@ -314,6 +446,34 @@ pub struct MinesweeperWidget<'a> {
     selected_cell: Option<&'a mut Option<(usize, usize)>>,
     question_marks: bool,
     show_labels: bool,
+    badge: Option<BadgeFn<'a>>,
+}
+
+/// Draws an annotation in the middle of a hidden cell.
+///
+/// Receives the cell's `(x, y)` and the cell itself; returns `None` to leave the
+/// cell alone. Called only for cells the player has not opened, so a badge can
+/// never cover a number — but note that a flagged cell *is* hidden, and drawing
+/// over its flag would hide the player's own marking.
+pub type BadgeFn<'a> = Box<dyn Fn(usize, usize, &Cell) -> Option<Badge> + 'a>;
+
+/// Text drawn inside a hidden cell, with the colour to draw it in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Badge {
+    /// Short text, such as `"31%"`. Kept to a few characters: cell size is at
+    /// most a few dozen points.
+    pub text: String,
+    /// Colour for the text.
+    pub color: Color32,
+}
+
+impl Badge {
+    pub fn new(text: impl Into<String>, color: Color32) -> Self {
+        Self {
+            text: text.into(),
+            color,
+        }
+    }
 }
 
 impl<'a> MinesweeperWidget<'a> {
@@ -325,7 +485,14 @@ impl<'a> MinesweeperWidget<'a> {
             selected_cell: None,
             question_marks: false,
             show_labels: false,
+            badge: None,
         }
+    }
+
+    /// Annotate hidden cells, e.g. with mine odds.
+    pub fn badge(mut self, badge: BadgeFn<'a>) -> Self {
+        self.badge = Some(badge);
+        self
     }
 
     /// Override the size (in logical pixels) of each cell.
@@ -600,6 +767,20 @@ impl Widget for MinesweeperWidget<'_> {
                 );
                 let cell = &self.game.cells[y * self.game.width + x];
                 draw_cell(&painter, cell_rect, cell, cell_size, ui.visuals());
+                // Badges annotate hidden cells only; a revealed number is the
+                // board's own information and must not be covered.
+                if cell.state != CellState::Revealed {
+                    let badge = self.badge.as_ref().and_then(|f| f(x, y, cell));
+                    if let Some(badge) = badge {
+                        painter.text(
+                            cell_rect.center(),
+                            Align2::CENTER_CENTER,
+                            badge.text,
+                            FontId::monospace(cell_size * 0.42),
+                            badge.color,
+                        );
+                    }
+                }
             }
         }
 
