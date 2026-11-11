@@ -7,23 +7,7 @@ Versioning](semver).
 
 ## [Unreleased]
 
-### Added
-
-- `actionable_move`, returning the conclusion the player has not acted on yet as a cell and
-  whether it wants revealing or flagging. `has_actionable_move` is a thin wrapper over it, so a
-  diagnostic can name which cell is holding the advice back rather than only knowing that
-  something is.
-- `has_actionable_move`, which asks whether the player still has something to *do*: a provably
-  safe cell still hidden, or a provably-mine cell they have not flagged. This is the question an
-  advice display should gate on, and it is not the same as `has_forced_move` — the rules count
-  "this cell is certainly a mine" as a move, so a display gated on `has_forced_move` went dark
-  the moment the player flagged that mine and stayed dark for the rest of the game. Reported from
-  play: on 16x16 boards 55 of 57 blocked positions were exactly this. A question mark counts as
-  unsettled; a flag does not.
-
-## [0.5.0] - 2026-11-10
-
-## [0.5.0] - 2026-11-10
+## [0.5.0] - 2026-11-11
 
 ### Added
 
@@ -42,6 +26,17 @@ Versioning](semver).
   display should annotate. Annotating every hidden cell would print the same board-wide
   number across most of the board.
 - `MinesweeperWidget::badge`, drawing short text such as `"31%"` on hidden cells.
+- `actionable_move`, returning the conclusion the player has not acted on yet as a cell and
+  whether it wants revealing or flagging. `has_actionable_move` is a thin wrapper over it, so a
+  diagnostic can name which cell is holding the advice back rather than only knowing that
+  something is.
+- `has_actionable_move`, which asks whether the player still has something to *do*: a provably
+  safe cell still hidden, or a provably-mine cell they have not flagged. This is the question an
+  advice display should gate on, and it is not the same as `has_forced_move` — the rules count
+  "this cell is certainly a mine" as a move, so a display gated on `has_forced_move` went dark
+  the moment the player flagged that mine and stayed dark for the rest of the game. Reported from
+  play: on 16x16 boards 55 of 57 blocked positions were exactly this. A question mark counts as
+  unsettled; a flag does not.
 
 ## [0.4.0] - 2026-09-24
 
